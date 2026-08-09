@@ -1,0 +1,39 @@
+{
+  "name": "pos-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "POSPlatform Cloud Foundation - modular monolith backend (Control Plane, Payment Orchestrator, Premium Commerce Data Plane)",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.4.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:architecture": "depcruise apps libs --config .dependency-cruiser.cjs --output-type err",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\" --ignore-path .gitignore",
+    "validate": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:architecture && pnpm build",
+    "clean": "turbo run clean && rimraf node_modules",
+    "migration:create": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:create src/migrations/Migration",
+    "migration:generate": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:generate -d src/cli/typeorm-cli-data-source.ts src/migrations/Migration",
+    "migration:show": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:show -d src/cli/typeorm-cli-data-source.ts",
+    "migration:run": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:run -d src/cli/typeorm-cli-data-source.ts",
+    "migration:revert": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:revert -d src/cli/typeorm-cli-data-source.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@types/node": "^24.0.0",
+    "dependency-cruiser": "^16.9.0",
+    "eslint": "^9.19.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0"
+  }
+}
