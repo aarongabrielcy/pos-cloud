@@ -1,0 +1,17 @@
+# POSPlatform Cloud repository line-ending policy.
+# Source/config/documentation files are normalized and checked out as LF.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF where appropriate.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files must never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
