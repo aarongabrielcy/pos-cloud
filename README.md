@@ -12,17 +12,25 @@ talks to this service. pos-cloud only matters once an installation upgrades to *
 (integrated payment terminals, Payment Orchestrator, cloud backups, sync, consolidation,
 multi-device operation, and a future - currently frozen - POS Web).
 
-## Status: CLOUD-01A - Cloud Foundation
+## Status: CLOUD-01B - Control Plane Core
 
-This is infrastructure, not features. No commercial bounded context (Customer, License,
-Installation, Payment, Terminal, ...) exists yet. What exists is the professional foundation those
-tasks will be built on: monorepo, processes, database/cache wiring, configuration, observability,
-health checks, architecture enforcement, and Docker development environment.
+CLOUD-01A built the Foundation (monorepo, processes, database/cache wiring, configuration,
+observability, health checks, architecture enforcement, Docker). CLOUD-01B adds the first three
+real bounded contexts on top of it: **Customer Management**, **Licensing**, and **Installations** -
+see [docs/architecture/control-plane-core.md](docs/architecture/control-plane-core.md) for the full
+design and [docs/architecture/control-plane-data-model.md](docs/architecture/control-plane-data-model.md)
+for the schema/ER diagram.
+
+**No authentication exists yet - DO NOT DEPLOY PUBLICLY.** Every business route under
+`/api/v1/control-plane/...`, plus `/docs` and `/openapi.json`, is unauthenticated. Auth is
+CLOUD-01C+ scope.
 
 Mercado Pago and the Point A910 terminal are **not implemented here** - they arrive later as a
 Payment Orchestrator adapter (CLOUD-03), behind a Ports/Adapters boundary
 ([ADR-008](docs/adr/ADR-008-provider-integrations-behind-ports-and-adapters.md)). Payment
-Orchestrator itself is **planned**, not implemented, in this repository state.
+Orchestrator itself is **planned**, not implemented, in this repository state. Same for
+installation activation, admin authentication, and everything else listed in the "Not implemented"
+section of [control-plane-core.md](docs/architecture/control-plane-core.md#not-implemented-in-cloud-01b).
 
 ## Architecture
 
@@ -38,12 +46,20 @@ Summary:
 - **CQRS**: selective, not ceremonial
   ([ADR-003](docs/adr/ADR-003-selective-cqrs.md)).
 - **Data ownership**: one PostgreSQL schema per bounded context, no cross-schema foreign keys, no
-  cross-context joins ([ADR-007](docs/adr/ADR-007-bounded-context-data-ownership.md)).
+  cross-context joins ([ADR-007](docs/adr/ADR-007-bounded-context-data-ownership.md),
+  [ADR-010](docs/adr/ADR-010-no-cross-bounded-context-database-foreign-keys.md)).
+- **Cross-context communication**: application-layer ports owned by the consumer, bound to an
+  in-process adapter only in `apps/api`'s composition root - never a direct import between
+  bounded contexts ([ADR-009](docs/adr/ADR-009-control-plane-core-bounded-contexts.md)).
+- **API contract**: OpenAPI, generated at runtime from live decorators
+  ([ADR-011](docs/adr/ADR-011-openapi-as-contract-with-pos-admin-web.md)).
 - Enforced by code, not just documentation: `pnpm test:architecture` runs dependency-cruiser
   against the real import graph and fails the build on a real violation - see
   [tests/architecture/README.md](tests/architecture/README.md).
 
-All ADRs: [docs/adr/](docs/adr/).
+All ADRs: [docs/adr/](docs/adr/). Control Plane design in full:
+[docs/architecture/control-plane-core.md](docs/architecture/control-plane-core.md) and
+[docs/architecture/control-plane-data-model.md](docs/architecture/control-plane-data-model.md).
 
 ## Processes
 
@@ -79,17 +95,23 @@ Real configuration for local development is **outside this repository**, at:
 ```
 
 (relative to this repo's parent directory - i.e. `pos-system/config/pos-cloud/` alongside
-`pos-system/pos-cloud/`). `docker-compose.yml` consumes these directly via `env_file`. They are
-never copied into the repo, never logged, never committed
+`pos-system/pos-cloud/`). They are never copied into the repo, never logged, never committed
 ([ADR-006](docs/adr/ADR-006-external-configuration-and-secrets.md)).
+
+Docker Compose itself lives **outside this repository too**, at
+[`pos-system/infra/docker-compose.yml`](../infra/docker-compose.yml) - see
+[`pos-system/infra/README.md`](../infra/README.md) for the full operational guide. It consumes
+these env files directly via `env_file`, one file per concern: `infrastructure.env` bootstraps the
+`postgres` container itself (only on first init of an empty volume); `api.env`/`worker.env` carry
+each process's full runtime configuration.
 
 This repo only ships [.env.example](.env.example) - variable **names** with non-sensitive
 placeholders, for reference and for running a process directly on the host (outside Docker).
 
 **Container networking note**: inside `docker-compose.yml`, `DATABASE_HOST`/`DATABASE_PORT` and
 `REDIS_HOST`/`REDIS_PORT` are pinned explicitly to the compose service names and internal ports
-(`postgres:5432`, `redis:6379`) via each service's `environment:` block, overriding whatever
-`infrastructure.env` sets for other run modes. Credentials (`DATABASE_USER`, `DATABASE_PASSWORD`,
+(`postgres:5432`, `redis:6379`) via each service's `environment:` block, overriding whatever the
+env files set for other run modes. Credentials (`DATABASE_USER`, `DATABASE_PASSWORD`,
 `DATABASE_NAME`) still come from the external env files.
 
 Config is centralized, typed, and validated at process startup (`libs/config`, zod). An invalid or
@@ -117,15 +139,25 @@ pnpm --filter @pos-cloud/worker start:dev
 
 ## Docker
 
-CLI only - no Docker Desktop UI, no Kubernetes, no Swarm, no registry push.
+CLI only - no Docker Desktop UI, no Kubernetes, no Swarm, no registry push. The Compose file lives
+**outside this repository**, at [`pos-system/infra/docker-compose.yml`](../infra/docker-compose.yml)
+(same `root/{proyectos, config, infra}` layout as the user's other projects), but every command
+below works from **this** directory - no `cd ../infra` needed for day-to-day work:
 
 ```sh
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs -f pos-cloud-api
-docker compose down            # never `down -v` - that would drop the named volumes
+pnpm infra:build         # docker compose -f ../infra/docker-compose.yml build
+pnpm infra:up            # docker compose -f ../infra/docker-compose.yml up -d
+pnpm infra:ps            # docker compose -f ../infra/docker-compose.yml ps
+pnpm infra:logs:api      # docker compose -f ../infra/docker-compose.yml logs -f pos-cloud-api
+pnpm infra:logs:worker   # docker compose -f ../infra/docker-compose.yml logs -f pos-cloud-worker
+pnpm infra:down          # docker compose -f ../infra/docker-compose.yml down - never `-v`, that
+                          # would drop the named volumes
 ```
+
+These are thin `docker compose -f ../infra/docker-compose.yml ...` wrappers - `infra/` remains the
+one source of truth for how the stack is orchestrated (see
+[`pos-system/infra/README.md`](../infra/README.md) for the full guide and for any command not
+listed here, e.g. `docker compose logs -f postgres`).
 
 Services: `postgres` (`postgres:16-alpine`), `redis` (`redis:7-alpine`), `pos-cloud-api`,
 `pos-cloud-worker`, all on the `pos-cloud-network` network. Named volumes
@@ -139,9 +171,23 @@ Host ports (chosen to avoid clashing with a local PostgreSQL/Redis install):
 - Redis: `6380:6379` (debug access only; containers talk to `redis:6379`)
 
 Both `pos-cloud-api` and `pos-cloud-worker` images are built from the single parameterized
-[infrastructure/docker/Dockerfile](infrastructure/docker/Dockerfile) (`--build-arg APP_NAME=api`
-or `worker`), run as the non-root `node` user, and are multi-stage so the runtime image ships
-compiled `dist/` output and production dependencies only.
+[Dockerfile](Dockerfile) at this repo's root (`--build-arg APP_NAME=api` or `worker`), run as the
+non-root `node` user, and are multi-stage so the runtime image ships compiled `dist/` output and
+production dependencies only. A fourth stage, `tooling`, keeps the full source tree and
+devDependencies (ts-node, the TypeORM CLI) - never deployed as a runtime image, used only by the
+migration tooling services below.
+
+### Migration tooling services
+
+`pnpm migration:show` / `migration:run` / `migration:revert` (see "Database / migrations" below)
+delegate to three Compose services that run one-off migration commands via `docker compose run`,
+kept out of `up -d` with `profiles: ["tools"]`. Calling them directly from `../infra/` also works:
+
+```sh
+docker compose run --rm --build pos-cloud-migration-show      # safe - lists migration state
+docker compose run --rm --build pos-cloud-migrations           # applies migrations - user only
+docker compose run --rm --build pos-cloud-migration-revert      # reverts last migration - user only
+```
 
 ## Health endpoints
 
@@ -154,6 +200,31 @@ compiled `dist/` output and production dependencies only.
 The worker has no HTTP port; its Docker healthcheck runs `apps/worker/dist/healthcheck.js`, a
 standalone script (no Nest bootstrap) that checks PostgreSQL and Redis the same way and exits 0/1.
 
+## Control Plane API
+
+Business routes live under `/api/v1/control-plane/...` (health endpoints above are unaffected):
+
+| Resource      | Routes                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customers     | `POST /customers`, `GET /customers/:id`, `GET /customers` (paginated), `PATCH /customers/:id/status`                                                    |
+| Licenses      | `POST /licenses`, `GET /licenses/:id` (incl. entitlements), `GET /licenses` (paginated), `PATCH /licenses/:id/status`, `PUT /licenses/:id/entitlements` |
+| Installations | `POST /installations`, `GET /installations/:id`, `GET /installations` (paginated), `PATCH /installations/:id/status`                                    |
+
+(all under `/api/v1/control-plane/`). List endpoints share one pagination contract: `page` (default
+1), `pageSize` (default 25, max 100), `items`, `total`, `totalPages`. Errors share one contract:
+`{ statusCode, code, message, correlationId, details? }` (see
+[docs/architecture/control-plane-core.md](docs/architecture/control-plane-core.md#http-api)).
+
+**OpenAPI** is generated at runtime from live decorators (never a static file) - in any
+non-production environment: Swagger UI at `GET /docs`, raw document at `GET /openapi.json`. See
+[ADR-011](docs/adr/ADR-011-openapi-as-contract-with-pos-admin-web.md). The future admin frontend
+(`pos-admin-web`, a separate repository - not created here) will generate its API client from
+`/openapi.json`; this repository never shares TypeScript source with it.
+
+Installation activation (`PENDING -> ACTIVE`) is intentionally **not** exposed through the admin
+status-change endpoint - see
+[control-plane-core.md](docs/architecture/control-plane-core.md#installation-activation-is-intentionally-not-exposed).
+
 ## Database / migrations
 
 - TypeORM, PostgreSQL 16.
@@ -161,19 +232,40 @@ standalone script (no Nest bootstrap) that checks PostgreSQL and Redis the same 
   override. Schema changes only happen through a migration the user runs explicitly
   ([ADR-005](docs/adr/ADR-005-postgresql-and-redis.md)).
 - A single reusable `DataSource` configuration (`libs/database`) is shared by `apps/api`,
-  `apps/worker`, and the migration CLI.
-- No business tables and no migrations exist yet. Migration tooling is prepared, not used:
+  `apps/worker`, and `migration:create`/`show`/`run`/`revert`.
+- One migration exists:
+  [`1786312046358-CreateControlPlaneCore.ts`](libs/database/src/migrations/1786312046358-CreateControlPlaneCore.ts) -
+  creates the `control_plane`, `licensing`, and `installations` schemas and their four tables (see
+  [docs/architecture/control-plane-data-model.md](docs/architecture/control-plane-data-model.md)).
+  **Applied** - `pnpm migration:show` confirms `[X] CreateControlPlaneCore1786312046358`.
 
 ```sh
-pnpm migration:create      # scaffold an empty migration file
-pnpm migration:generate    # diff entities vs. schema and generate a migration
+pnpm migration:create      # scaffold an empty migration file - local, no Docker
+pnpm migration:generate    # diff real entity metadata vs. schema and generate a migration - local
 pnpm migration:show        # list migrations and their applied state
 pnpm migration:run         # apply pending migrations
 pnpm migration:revert      # revert the last applied migration
 ```
 
-**Only the user runs `migration:run` / `migration:revert`.** These commands are documented and
-wired up, not executed as part of this task.
+`migration:show`/`run`/`revert` are thin wrappers around `docker compose -f
+../infra/docker-compose.yml run --rm --build <service>` (`pos-cloud-migration-show`/
+`pos-cloud-migrations`/`pos-cloud-migration-revert` respectively) - see "Migration tooling
+services" under Docker above. **Security note**: `migration:show` is read-only and safe for either
+the user or an assistant to run; `migration:run` and `migration:revert` change schema and are run
+by the user only, never by an assistant. Inside the container, each service runs a `*:internal`
+script (`migration:show:internal`/etc., defined in [package.json](package.json)) that invokes
+TypeORM directly - kept distinct from the public `migration:*` scripts specifically so the
+container's `command:` never re-invokes `docker compose` from inside itself.
+
+`migration:create` and `migration:generate` never go through Docker - they run directly against
+`libs/database/src/migrations/`, which lives in a bind-mounted-equivalent source tree either way
+(this repo, not a container). `migration:generate` is the one command that needs real TypeORM
+entity metadata (not just the migrations table) to diff against PostgreSQL - `apps/migration-tooling`
+is a dedicated composition root that imports every bounded context's persistence records (via each
+package's `persistence-entities.ts`, a deliberate, documented exception to "persistence internals
+are never exported" - see that file's comment) purely so this one command can compare them.
+`@pos-cloud/database` itself stays free of any bounded-context dependency, and `apps/api`/
+`apps/worker` never import from `apps/migration-tooling` - it exists solely for this CLI command.
 
 ## Git rules
 
@@ -187,45 +279,62 @@ and deployments are performed by the user.
 ```
 pos-cloud/
 ├── apps/
-│   ├── api/            NestJS HTTP process
-│   └── worker/         NestJS application-context (background) process
+│   ├── api/                NestJS HTTP process (composition root - see src/control-plane/)
+│   ├── worker/             NestJS application-context (background) process
+│   └── migration-tooling/  migration:generate composition root only - see Database/migrations
 ├── libs/
-│   ├── shared-kernel/   Clock port, base Domain/Application error types - deliberately tiny
+│   ├── shared-kernel/   Clock/IdGenerator ports, base error taxonomy, pagination - deliberately tiny
 │   ├── config/          zod-validated, typed AppConfig, shared by every process
 │   ├── database/        TypeORM DataSource + Redis client factories, migration CLI entry point
 │   ├── observability/   structured logging (pino), correlation IDs, redaction config
-│   └── messaging/       DomainEvent/ApplicationEvent/EventBus contracts (no broker yet)
+│   ├── messaging/       DomainEvent/ApplicationEvent/EventBus contracts (no broker yet)
+│   └── control-plane/
+│       ├── customer-management/   Customer aggregate - domain/application/infrastructure/presentation
+│       ├── licensing/              License + LicenseEntitlement aggregates
+│       └── installations/          Installation aggregate
 ├── docs/
-│   ├── architecture/    overview.md with Mermaid diagrams
-│   └── adr/             ADR-001 .. ADR-008
-├── infrastructure/
-│   └── docker/          shared, parameterized Dockerfile
+│   ├── architecture/    overview.md, control-plane-core.md, control-plane-data-model.md
+│   └── adr/             ADR-001 .. ADR-011
 ├── tests/
 │   └── architecture/    dependency-cruiser ruleset documentation
 ├── .env.example
-├── docker-compose.yml
+├── Dockerfile            multi-stage: base/deps/build/tooling/prod-deps/runtime
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── tsconfig.base.json
 ```
+
+Docker Compose itself is not part of this repository - see
+[`pos-system/infra/`](../infra/README.md).
 
 ## Troubleshooting
 
 - **A process fails immediately on boot with `ConfigValidationError`**: an environment variable is
   missing or invalid (e.g. `APP_PORT` out of range). The error lists the offending variable
   _names_ only, never values - check the external env files under `../config/pos-cloud/`.
-- **`docker compose ps` shows a service as `unhealthy`**: check `docker compose logs <service>`.
-  For `pos-cloud-api`/`pos-cloud-worker`, an unhealthy status almost always means PostgreSQL or
-  Redis isn't reachable yet - confirm `postgres`/`redis` are themselves `healthy` first.
+- **`docker compose ps` shows a service as `unhealthy`**: check `docker compose logs <service>`
+  from `../infra/`. For `pos-cloud-api`/`pos-cloud-worker`, an unhealthy status almost always means
+  PostgreSQL or Redis isn't reachable yet - confirm `postgres`/`redis` are themselves `healthy`
+  first.
+- **`pos-cloud-api`/`pos-cloud-worker` fail with `password authentication failed`**: the
+  `pos-cloud-postgres-data` volume was already initialized under different credentials than
+  `api.env`/`worker.env` currently declare (`postgres` only applies `POSTGRES_*` env vars on first
+  init of an empty volume, never on restart) - see the Troubleshooting section in
+  [`pos-system/infra/README.md`](../infra/README.md).
 - **`pnpm test:architecture` fails to resolve `@pos-cloud/*` imports**: run `pnpm build` first, so
   each library has a `dist/` for module resolution to follow (see
   [tests/architecture/README.md](tests/architecture/README.md)).
 - **Port already in use**: host ports are deliberately non-default (`5433`, `6380`) to avoid a
   local PostgreSQL/Redis install; if `5100` conflicts, another process on the host already uses it.
+- **`POST /api/v1/control-plane/customers` (or any business route) fails with a database error**:
+  confirm the CLOUD-01B migration is applied with `pnpm migration:show` - it should already show
+  `[X] CreateControlPlaneCore1786312046358`. Health endpoints stay fine regardless of migration
+  state, since they don't touch the Control Plane tables.
 
 ## Roadmap
 
-- **CLOUD-01B** - Control Plane Core (first real domain models and migrations)
+- **CLOUD-01B** (this state) - Control Plane Core: Customer Management, Licensing, Installations.
+  Migration applied.
 - **CLOUD-01C** - Installation Authentication / Health / Audit
 - **CLOUD-02** - Payment Orchestrator Core
 - **CLOUD-03** - Mercado Pago Adapter (behind the Ports/Adapters boundary from

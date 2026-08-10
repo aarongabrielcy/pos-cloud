@@ -1,3 +1,7 @@
 packages:
   - "apps/*"
   - "libs/*"
+  - "libs/control-plane/*"
+allowBuilds:
+  # Telemetry postinstall script (pulled in transitively) - no need to run it.
+  '@scarf/scarf': false
