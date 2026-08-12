@@ -1,7 +1,12 @@
 # Migrations
 
-No migrations exist yet. This directory is the target for TypeORM migration files once
-CLOUD-01B introduces the first real domain models.
+## `1786312046358-CreateControlPlaneCore.ts` (CLOUD-01B)
+
+Creates the first three bounded-context schemas and tables: `control_plane.customers`,
+`licensing.licenses`, `licensing.license_entitlements`, `installations.installations`. See
+[docs/architecture/control-plane-data-model.md](../../../../docs/architecture/control-plane-data-model.md)
+for the full column/constraint/index list and an ER diagram. **Not executed** - the user runs
+`pnpm migration:run` when ready.
 
 Rules (see [docs/architecture/overview.md](../../../../docs/architecture/overview.md) and
 [ADR-006](../../../../docs/adr/ADR-006-external-configuration-and-secrets.md)):

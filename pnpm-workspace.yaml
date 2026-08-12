@@ -1,3 +1,10 @@
 packages:
   - "apps/*"
   - "libs/*"
+  - "libs/control-plane/*"
+allowBuilds:
+  # Telemetry postinstall script (pulled in transitively) - no need to run it.
+  '@scarf/scarf': false
+  # Native N-API module - its install script fetches/builds the prebuilt Argon2id binary the
+  # package needs to function at all (see docs/architecture/admin-authentication.md#password-hashing).
+  argon2: true

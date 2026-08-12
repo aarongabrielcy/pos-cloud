@@ -21,6 +21,14 @@ import { APP_CONFIG } from "../config/app-config.tokens";
             level: config.logging.level,
           }),
           genReqId: (req: IncomingMessage, res: ServerResponse) => {
+            // main.ts's correlationIdMiddleware runs before Nest's body parser and already sets
+            // req.id for every request (including ones with a malformed body, which never reach
+            // this point at all) - reuse it here instead of resolving a second, different id.
+            if (req.id) {
+              const existing = String(req.id);
+              res.setHeader(CORRELATION_ID_HEADER, existing);
+              return existing;
+            }
             const incoming = req.headers[CORRELATION_ID_HEADER];
             const correlationId = resolveCorrelationId(
               Array.isArray(incoming) ? incoming[0] : incoming,

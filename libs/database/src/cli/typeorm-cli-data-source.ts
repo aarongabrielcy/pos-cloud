@@ -13,7 +13,6 @@ const config = loadConfig();
 
 export default new DataSource(
   buildDataSourceOptions(config.database, {
-    logging: config.env === "development",
     migrations: [`${__dirname}/../migrations/*{.ts,.js}`],
   }),
 );

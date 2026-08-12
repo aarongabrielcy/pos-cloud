@@ -38,8 +38,21 @@ describe("buildDataSourceOptions", () => {
     });
   });
 
-  it("defaults logging to false", () => {
+  it("always disables logging", () => {
     const options = buildDataSourceOptions(database);
+
+    expect(options.logging).toBe(false);
+  });
+
+  it("cannot be overridden to enable logging", () => {
+    // Regression guard: a prior `logging: config.env === "development"` pattern at several call
+    // sites (apps/api, apps/worker, both CLI datasources) caused TypeORM's default logger to print
+    // full bound query parameters - including an Argon2id password_hash - during a real
+    // `admin:bootstrap` run. `logging` is intentionally not part of DataSourceOptionsOverrides
+    // anymore, so this cast is the only way left to attempt it, proving the factory ignores it.
+    const options = buildDataSourceOptions(database, {
+      logging: true,
+    } as unknown as Parameters<typeof buildDataSourceOptions>[1]);
 
     expect(options.logging).toBe(false);
   });
