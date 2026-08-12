@@ -1,8 +1,11 @@
 import { Global, Module, type INestApplication } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { JwtService } from "@nestjs/jwt";
 import { AUTH_CONFIG, type AuthConfig } from "@pos-cloud/config";
 import {
   AccessManagementModule,
   AccessTokenGuard,
+  AdminAuthorizationGuard,
   AdminUserNotFoundError,
   AdminUserStatus,
   GetAdminProfileUseCase,
@@ -32,6 +35,39 @@ const fakeAuthConfig: AuthConfig = {
 @Module({ providers: [{ provide: AUTH_CONFIG, useValue: fakeAuthConfig }], exports: [AUTH_CONFIG] })
 class TestAuthConfigModule {}
 
+/**
+ * CLOUD-01C-B: mirrors ControlPlaneModule's own APP_GUARD registration (AccessTokenGuard then
+ * AdminAuthorizationGuard, both `useExisting` - see that module's own comment for why `useClass`
+ * would fail to resolve ACCESS_TOKEN_VERIFIER/PERMISSION_RESOLVER here) so this HTTP contract test
+ * exercises the real global guard chain instead of the old per-handler
+ * `@UseGuards(AccessTokenGuard)` that used to sit directly on `me()`. Imports AccessManagementModule
+ * directly (not just a sibling of it in the outer testing module) - `useExisting` needs the target
+ * token visible to THIS module's own injector, exactly like ControlPlaneModule itself.
+ */
+@Module({
+  imports: [AccessManagementModule],
+  providers: [
+    { provide: APP_GUARD, useExisting: AccessTokenGuard },
+    { provide: APP_GUARD, useExisting: AdminAuthorizationGuard },
+  ],
+})
+class TestGlobalGuardsModule {}
+
+/** Issues a real access JWT the real AccessTokenGuard will accept, signed with fakeAuthConfig's own secret/issuer/audience. */
+async function signRealAccessToken(adminUserId: string, sessionId: string): Promise<string> {
+  const jwtService = new JwtService();
+  return jwtService.signAsync(
+    { sub: adminUserId, sid: sessionId, typ: "admin_access" },
+    {
+      secret: fakeAuthConfig.jwt.secret,
+      issuer: fakeAuthConfig.jwt.issuer,
+      audience: fakeAuthConfig.jwt.audience,
+      expiresIn: fakeAuthConfig.accessTokenTtlSeconds,
+      algorithm: "HS256",
+    },
+  );
+}
+
 describe("Auth HTTP contract", () => {
   let app: INestApplication;
   let loginAdminUseCase: { execute: jest.Mock };
@@ -47,6 +83,7 @@ describe("Auth HTTP contract", () => {
 
     const moduleBuilder = createHttpTestModuleBuilder([
       TestAuthConfigModule,
+      TestGlobalGuardsModule,
       AccessManagementModule,
     ])
       .overrideProvider(LoginAdminUseCase)
@@ -150,6 +187,18 @@ describe("Auth HTTP contract", () => {
         .send({ email: "not-an-email", password: "whatever-12345" });
 
       expect(response.status).toBe(400);
+    });
+
+    it("is reachable with no Authorization header at all - @Public(), not merely unannotated", async () => {
+      loginAdminUseCase.execute.mockRejectedValue(new InvalidAdminCredentialsError());
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/auth/login")
+        .send({ email: "admin@example.com", password: "whatever-12345" });
+
+      // 401 INVALID_CREDENTIALS from the use case, never 401 INVALID_ACCESS_TOKEN from the guard -
+      // proves AccessTokenGuard never even ran its Bearer check for this route.
+      expect(response.body.code).toBe("INVALID_CREDENTIALS");
     });
   });
 
@@ -257,10 +306,14 @@ describe("Auth HTTP contract", () => {
 
   describe("GET /api/v1/auth/me - authenticated", () => {
     let authedApp: INestApplication;
+    let accessToken: string;
 
     beforeEach(async () => {
+      accessToken = await signRealAccessToken("admin-1", "session-1");
+
       const moduleBuilder = createHttpTestModuleBuilder([
         TestAuthConfigModule,
+        TestGlobalGuardsModule,
         AccessManagementModule,
       ])
         .overrideProvider(LoginAdminUseCase)
@@ -270,17 +323,7 @@ describe("Auth HTTP contract", () => {
         .overrideProvider(LogoutAdminUseCase)
         .useValue(logoutAdminUseCase)
         .overrideProvider(GetAdminProfileUseCase)
-        .useValue(getAdminProfileUseCase)
-        .overrideGuard(AccessTokenGuard)
-        .useValue({
-          canActivate: (context: {
-            switchToHttp: () => { getRequest: () => Record<string, unknown> };
-          }) => {
-            const req = context.switchToHttp().getRequest();
-            req.currentAdmin = { adminUserId: "admin-1", sessionId: "session-1" };
-            return true;
-          },
-        });
+        .useValue(getAdminProfileUseCase);
 
       authedApp = await initHttpTestApp(moduleBuilder);
     });
@@ -301,7 +344,7 @@ describe("Auth HTTP contract", () => {
 
       const response = await request(authedApp.getHttpServer())
         .get("/api/v1/auth/me")
-        .set("Authorization", "Bearer whatever-the-fake-guard-lets-through");
+        .set("Authorization", `Bearer ${accessToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({
@@ -319,7 +362,9 @@ describe("Auth HTTP contract", () => {
     it("returns 200 with status SUSPENDED for a suspended AdminUser (documents current policy - not a 401/403)", async () => {
       // A valid access JWT is not re-checked against AdminUser.status on every request (only
       // LoginAdminUseCase gates on canAttemptLogin - see CLOUD-01C-A's /auth/me inspection). This
-      // test fixes that as the current, deliberately-unchanged behavior, not a new policy.
+      // test fixes that as the current, deliberately-unchanged behavior, not a new policy -
+      // @AuthenticatedOnly() never resolves permissions, so AdminAuthorizationGuard cannot see
+      // SUSPENDED here either (see docs/architecture/admin-rbac.md#suspended-semantics).
       getAdminProfileUseCase.execute.mockResolvedValue({
         id: "admin-1",
         email: "admin@example.com",
@@ -331,7 +376,7 @@ describe("Auth HTTP contract", () => {
 
       const response = await request(authedApp.getHttpServer())
         .get("/api/v1/auth/me")
-        .set("Authorization", "Bearer whatever-the-fake-guard-lets-through");
+        .set("Authorization", `Bearer ${accessToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe("SUSPENDED");
@@ -347,7 +392,7 @@ describe("Auth HTTP contract", () => {
 
       const response = await request(authedApp.getHttpServer())
         .get("/api/v1/auth/me")
-        .set("Authorization", "Bearer whatever-the-fake-guard-lets-through");
+        .set("Authorization", `Bearer ${accessToken}`);
 
       expect(response.status).toBe(404);
       expect(response.body).toMatchObject({ statusCode: 404, code: "ADMIN_USER_NOT_FOUND" });

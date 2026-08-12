@@ -1,8 +1,16 @@
 import { Controller, Get } from "@nestjs/common";
 import { HealthCheck, HealthCheckService } from "@nestjs/terminus";
+import { Public } from "@pos-cloud/access-management";
 import { DatabaseHealthIndicator } from "./database-health.indicator";
 import { RedisHealthIndicator } from "./redis-health.indicator";
 
+/**
+ * Class-level @Public() (CLOUD-01C-B): every handler here must be reachable with zero credentials -
+ * Docker's own HEALTHCHECK and load balancers hit these with no Authorization header at all. See
+ * docs/architecture/admin-rbac.md#default-deny for why this must be explicit rather than relying on
+ * these routes simply not being annotated (the global guards default-deny anything unannotated).
+ */
+@Public()
 @Controller("health")
 export class HealthController {
   constructor(

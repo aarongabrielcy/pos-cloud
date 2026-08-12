@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
-import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { PERMISSIONS, RequirePermissions } from "@pos-cloud/access-management";
 import { ChangeInstallationStatusUseCase } from "../../application/use-cases/change-installation-status.use-case";
 import { CreateInstallationUseCase } from "../../application/use-cases/create-installation.use-case";
 import { GetInstallationByIdUseCase } from "../../application/use-cases/get-installation-by-id.use-case";
@@ -12,6 +13,7 @@ import { InstallationResponseDto } from "./dto/installation.response.dto";
 import { ListInstallationsQueryDto } from "./dto/list-installations.query.dto";
 
 @ApiTags("installations")
+@ApiBearerAuth("admin-bearer")
 @Controller("api/v1/control-plane/installations")
 export class InstallationController {
   constructor(
@@ -22,6 +24,7 @@ export class InstallationController {
   ) {}
 
   @Post()
+  @RequirePermissions(PERMISSIONS.INSTALLATIONS.CREATE)
   @ApiOperation({ summary: "Create an installation (starts PENDING)" })
   async create(@Body() body: CreateInstallationRequestDto): Promise<InstallationResponseDto> {
     const installation = await this.createInstallationUseCase.execute(body);
@@ -29,6 +32,7 @@ export class InstallationController {
   }
 
   @Get(":id")
+  @RequirePermissions(PERMISSIONS.INSTALLATIONS.READ)
   @ApiOperation({ summary: "Get an installation by id" })
   async getById(@Param("id", ParseUUIDPipe) id: string): Promise<InstallationResponseDto> {
     const installation = await this.getInstallationByIdUseCase.execute(id);
@@ -39,6 +43,7 @@ export class InstallationController {
   }
 
   @Get()
+  @RequirePermissions(PERMISSIONS.INSTALLATIONS.READ)
   @ApiOperation({ summary: "List installations" })
   async list(@Query() query: ListInstallationsQueryDto): Promise<InstallationListResponseDto> {
     const result = await this.listInstallationsUseCase.execute(query);
@@ -52,6 +57,7 @@ export class InstallationController {
   }
 
   @Patch(":id/status")
+  @RequirePermissions(PERMISSIONS.INSTALLATIONS.STATUS_CHANGE)
   @ApiOperation({
     summary: "Administrative status change",
     description: "PENDING -> ACTIVE is not available here; activation is a future CLOUD-01C flow.",

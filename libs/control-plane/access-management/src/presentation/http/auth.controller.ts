@@ -8,7 +8,6 @@ import {
   Post,
   Req,
   Res,
-  UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { AUTH_CONFIG, type AuthConfig } from "@pos-cloud/config";
@@ -18,13 +17,14 @@ import { LoginAdminUseCase } from "../../application/use-cases/login-admin.use-c
 import { LogoutAdminUseCase } from "../../application/use-cases/logout-admin.use-case";
 import { RefreshAdminSessionUseCase } from "../../application/use-cases/refresh-admin-session.use-case";
 import { InvalidRefreshTokenError } from "../../domain/admin-session.errors";
+import { AuthenticatedOnly } from "./decorators/authenticated-only.decorator";
 import { CurrentAdmin } from "./decorators/current-admin.decorator";
+import { Public } from "./decorators/public.decorator";
 import type { CurrentAdminPrincipal, RequestWithCurrentAdmin } from "./current-admin-principal";
 import { AdminMeResponseDto } from "./dto/admin-me.response.dto";
 import { LoginRequestDto } from "./dto/login.request.dto";
 import { LoginResponseDto } from "./dto/login.response.dto";
 import { RefreshResponseDto } from "./dto/refresh.response.dto";
-import { AccessTokenGuard } from "./guards/access-token.guard";
 
 /** Must match this controller's own route prefix - the refresh cookie is only ever sent back to /api/v1/auth/*. */
 const AUTH_COOKIE_PATH = "/api/v1/auth";
@@ -41,6 +41,7 @@ export class AuthController {
   ) {}
 
   @Post("login")
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Admin login",
@@ -63,6 +64,7 @@ export class AuthController {
   }
 
   @Post("refresh")
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Rotate the refresh session",
@@ -88,6 +90,7 @@ export class AuthController {
   }
 
   @Post("logout")
+  @Public()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: "Logout",
@@ -103,7 +106,7 @@ export class AuthController {
   }
 
   @Get("me")
-  @UseGuards(AccessTokenGuard)
+  @AuthenticatedOnly()
   @ApiBearerAuth("admin-bearer")
   @ApiOperation({ summary: "Current authenticated admin's public profile" })
   async me(@CurrentAdmin() currentAdmin: CurrentAdminPrincipal): Promise<AdminMeResponseDto> {

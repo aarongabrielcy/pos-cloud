@@ -6,6 +6,12 @@ admin identity and login/session infrastructure - it does **not** add RBAC, does
 existing Control Plane route, and does **not** implement installation enrollment. See "Limits of
 CLOUD-01C-A" at the end.
 
+RBAC and blanket Control Plane route protection were added on top of this, unchanged, by CLOUD-01C-B
+
+- see [admin-rbac.md](./admin-rbac.md). Every claim on this page about authentication itself (JWT,
+  refresh, replay, lockout, timing mitigation, password hashing, cookies) is still accurate as
+  written; only "Not implemented in CLOUD-01C-A" below is now partially superseded.
+
 ## Bounded context
 
 `libs/control-plane/access-management/` follows the same internal layering as every other bounded
@@ -221,8 +227,9 @@ local development - never printed, never committed (see the final report's confi
 
 ## Not implemented in CLOUD-01C-A
 
-Roles/permissions/RBAC, an `APP_GUARD`-style global guard, protecting Customers/Licenses/
-Installations, `@Public()` route exceptions, installation enrollment/`InstallationCredential`,
-heartbeat/health ingestion, an audit event store, MFA/TOTP, rate limiting, password recovery, email
-verification, OAuth, and the Payment Orchestrator. All of it is CLOUD-01C-B or later - see the task
-brief's exclusion list; none of it exists here even as scaffolding.
+~~Roles/permissions/RBAC, an `APP_GUARD`-style global guard, protecting Customers/Licenses/
+Installations, `@Public()` route exceptions~~ - all added by CLOUD-01C-B, unchanged from this page's
+description of authentication itself; see [admin-rbac.md](./admin-rbac.md). Still not implemented as
+of CLOUD-01C-B: installation enrollment/`InstallationCredential`, heartbeat/health ingestion, an
+audit event store, MFA/TOTP, rate limiting, password recovery, email verification, OAuth, and the
+Payment Orchestrator.

@@ -48,11 +48,12 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   // Swagger/OpenAPI is generated from live decorators (never a static openapi.json), and is
-  // development-only by default - production deployments must explicitly opt back in via
-  // NODE_ENV, since the Customers/Licenses/Installations business routes remain unprotected for now
-  // (see docs/adr/ADR-011 and the README security notice: DO NOT DEPLOY PUBLICLY). CLOUD-01C-A only
-  // adds admin identity + login (GET /auth/me is the one Bearer-protected route so far) - blanket
-  // Control Plane protection is CLOUD-01C-B, not this task.
+  // development-only by default - production deployments must explicitly opt back in via NODE_ENV
+  // (see docs/adr/ADR-011). Since CLOUD-01C-B, every Customers/Licenses/Installations route requires
+  // a Bearer access token AND the specific permission listed in docs/architecture/admin-rbac.md's
+  // protection matrix (AccessTokenGuard + AdminAuthorizationGuard, registered globally in
+  // ControlPlaneModule) - only login/refresh/logout (@Public()) and /health (@Public()) are reachable
+  // without one.
   if (config.env !== "production") {
     const document = SwaggerModule.createDocument(
       app,
@@ -60,7 +61,7 @@ async function bootstrap(): Promise<void> {
         .setTitle("POSPlatform Cloud - Control Plane API")
         .setDescription(
           "Vendor/Admin Control Plane: Customer Management, Licensing, Installations, Auth. " +
-            "Customers/Licenses/Installations remain unauthenticated - DO NOT DEPLOY PUBLICLY.",
+            "Customers/Licenses/Installations require a Bearer admin access token and RBAC permission.",
         )
         .setVersion("1.0")
         .addTag("customers")

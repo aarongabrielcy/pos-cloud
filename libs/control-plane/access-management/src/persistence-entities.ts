@@ -8,3 +8,7 @@
  */
 export { AdminSessionRecord } from "./infrastructure/persistence/admin-session.record";
 export { AdminUserRecord } from "./infrastructure/persistence/admin-user.record";
+export { AdminUserRoleRecord } from "./infrastructure/persistence/admin-user-role.record";
+export { PermissionRecord } from "./infrastructure/persistence/permission.record";
+export { AdminRoleRecord } from "./infrastructure/persistence/admin-role.record";
+export { RolePermissionRecord } from "./infrastructure/persistence/role-permission.record";
