@@ -7,6 +7,9 @@ export interface Clock {
   now(): Date;
 }
 
+/** DI token for injecting a Clock in frameworks (e.g. NestJS) that resolve by token, not type. */
+export const CLOCK = Symbol("CLOCK");
+
 export class SystemClock implements Clock {
   now(): Date {
     return new Date();
