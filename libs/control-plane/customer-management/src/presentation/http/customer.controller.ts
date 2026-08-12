@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
-import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { PERMISSIONS, RequirePermissions } from "@pos-cloud/access-management";
 import { ChangeCustomerStatusUseCase } from "../../application/use-cases/change-customer-status.use-case";
 import { CreateCustomerUseCase } from "../../application/use-cases/create-customer.use-case";
 import { GetCustomerByIdUseCase } from "../../application/use-cases/get-customer-by-id.use-case";
@@ -12,6 +13,7 @@ import { CustomerResponseDto } from "./dto/customer.response.dto";
 import { ListCustomersQueryDto } from "./dto/list-customers.query.dto";
 
 @ApiTags("customers")
+@ApiBearerAuth("admin-bearer")
 @Controller("api/v1/control-plane/customers")
 export class CustomerController {
   constructor(
@@ -22,6 +24,7 @@ export class CustomerController {
   ) {}
 
   @Post()
+  @RequirePermissions(PERMISSIONS.CUSTOMERS.CREATE)
   @ApiOperation({ summary: "Create a customer" })
   async create(@Body() body: CreateCustomerRequestDto): Promise<CustomerResponseDto> {
     const customer = await this.createCustomerUseCase.execute(body);
@@ -29,6 +32,7 @@ export class CustomerController {
   }
 
   @Get(":id")
+  @RequirePermissions(PERMISSIONS.CUSTOMERS.READ)
   @ApiOperation({ summary: "Get a customer by id" })
   async getById(@Param("id", ParseUUIDPipe) id: string): Promise<CustomerResponseDto> {
     const customer = await this.getCustomerByIdUseCase.execute(id);
@@ -39,6 +43,7 @@ export class CustomerController {
   }
 
   @Get()
+  @RequirePermissions(PERMISSIONS.CUSTOMERS.READ)
   @ApiOperation({ summary: "List customers" })
   async list(@Query() query: ListCustomersQueryDto): Promise<CustomerListResponseDto> {
     const result = await this.listCustomersUseCase.execute(query);
@@ -52,6 +57,7 @@ export class CustomerController {
   }
 
   @Patch(":id/status")
+  @RequirePermissions(PERMISSIONS.CUSTOMERS.STATUS_CHANGE)
   @ApiOperation({ summary: "Change a customer's status" })
   async changeStatus(
     @Param("id", ParseUUIDPipe) id: string,

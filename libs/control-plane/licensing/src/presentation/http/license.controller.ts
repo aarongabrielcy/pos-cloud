@@ -9,7 +9,8 @@ import {
   Put,
   Query,
 } from "@nestjs/common";
-import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { PERMISSIONS, RequirePermissions } from "@pos-cloud/access-management";
 import { ChangeLicenseStatusUseCase } from "../../application/use-cases/change-license-status.use-case";
 import { CreateLicenseUseCase } from "../../application/use-cases/create-license.use-case";
 import { GetLicenseByIdUseCase } from "../../application/use-cases/get-license-by-id.use-case";
@@ -24,6 +25,7 @@ import { ListLicensesQueryDto } from "./dto/list-licenses.query.dto";
 import { ReplaceLicenseEntitlementsRequestDto } from "./dto/replace-license-entitlements.request.dto";
 
 @ApiTags("licenses")
+@ApiBearerAuth("admin-bearer")
 @Controller("api/v1/control-plane/licenses")
 export class LicenseController {
   constructor(
@@ -35,6 +37,7 @@ export class LicenseController {
   ) {}
 
   @Post()
+  @RequirePermissions(PERMISSIONS.LICENSES.CREATE)
   @ApiOperation({ summary: "Create a license" })
   async create(@Body() body: CreateLicenseRequestDto): Promise<LicenseResponseDto> {
     const license = await this.createLicenseUseCase.execute({
@@ -51,6 +54,7 @@ export class LicenseController {
   }
 
   @Get(":id")
+  @RequirePermissions(PERMISSIONS.LICENSES.READ)
   @ApiOperation({ summary: "Get a license by id, including its entitlements" })
   async getById(@Param("id", ParseUUIDPipe) id: string): Promise<LicenseResponseDto> {
     const license = await this.getLicenseByIdUseCase.execute(id);
@@ -61,6 +65,7 @@ export class LicenseController {
   }
 
   @Get()
+  @RequirePermissions(PERMISSIONS.LICENSES.READ)
   @ApiOperation({ summary: "List licenses (entitlements omitted per item)" })
   async list(@Query() query: ListLicensesQueryDto): Promise<LicenseListResponseDto> {
     const result = await this.listLicensesUseCase.execute(query);
@@ -76,6 +81,7 @@ export class LicenseController {
   }
 
   @Patch(":id/status")
+  @RequirePermissions(PERMISSIONS.LICENSES.STATUS_CHANGE)
   @ApiOperation({ summary: "Change a license's status" })
   async changeStatus(
     @Param("id", ParseUUIDPipe) id: string,
@@ -86,6 +92,7 @@ export class LicenseController {
   }
 
   @Put(":id/entitlements")
+  @RequirePermissions(PERMISSIONS.LICENSES.ENTITLEMENTS_MANAGE)
   @ApiOperation({ summary: "Replace the full entitlement collection for a license" })
   async replaceEntitlements(
     @Param("id", ParseUUIDPipe) id: string,

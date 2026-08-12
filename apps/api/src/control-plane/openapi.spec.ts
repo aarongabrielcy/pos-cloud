@@ -63,4 +63,69 @@ describe("OpenAPI document regression", () => {
 
     await app.close();
   });
+
+  it("documents Bearer admin auth on every business operation, but not on the public auth endpoints (CLOUD-01C-B)", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [FakeDatabaseModule, ControlPlaneModule],
+    }).compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const document = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle("POSPlatform Cloud - Control Plane API")
+        .setVersion("1.0")
+        .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
+        .build(),
+    );
+
+    const requiresBearerAuth: Array<{ path: string; method: string }> = [
+      { path: "/api/v1/control-plane/customers", method: "post" },
+      { path: "/api/v1/control-plane/customers", method: "get" },
+      { path: "/api/v1/control-plane/customers/{id}", method: "get" },
+      { path: "/api/v1/control-plane/customers/{id}/status", method: "patch" },
+      { path: "/api/v1/control-plane/licenses", method: "post" },
+      { path: "/api/v1/control-plane/licenses", method: "get" },
+      { path: "/api/v1/control-plane/licenses/{id}", method: "get" },
+      { path: "/api/v1/control-plane/licenses/{id}/status", method: "patch" },
+      { path: "/api/v1/control-plane/licenses/{id}/entitlements", method: "put" },
+      { path: "/api/v1/control-plane/installations", method: "post" },
+      { path: "/api/v1/control-plane/installations", method: "get" },
+      { path: "/api/v1/control-plane/installations/{id}", method: "get" },
+      { path: "/api/v1/control-plane/installations/{id}/status", method: "patch" },
+      { path: "/api/v1/auth/me", method: "get" },
+    ];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function operation(path: string, method: string): any {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (document.paths[path] as any)[method];
+    }
+
+    for (const { path, method } of requiresBearerAuth) {
+      const security = operation(path, method).security;
+      expect(security).toEqual(
+        expect.arrayContaining([expect.objectContaining({ "admin-bearer": [] })]),
+      );
+    }
+
+    const publicNoAuth: Array<{ path: string; method: string }> = [
+      { path: "/api/v1/auth/login", method: "post" },
+      { path: "/api/v1/auth/refresh", method: "post" },
+      { path: "/api/v1/auth/logout", method: "post" },
+    ];
+
+    for (const { path, method } of publicNoAuth) {
+      const security = operation(path, method).security;
+      const hasAdminBearer = (security ?? []).some(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (entry: any) => "admin-bearer" in entry,
+      );
+      expect(hasAdminBearer).toBe(false);
+    }
+
+    await app.close();
+  });
 });
