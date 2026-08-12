@@ -32,7 +32,12 @@ describe("OpenAPI document regression", () => {
         .addTag("licenses")
         .addTag("installations")
         .addTag("auth")
+        .addTag("installation-auth")
         .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
+        .addBearerAuth(
+          { type: "http", scheme: "bearer", bearerFormat: "<credentialId>.<secret>" },
+          "installation-bearer",
+        )
         .build(),
     );
 
@@ -47,10 +52,18 @@ describe("OpenAPI document regression", () => {
       { path: "/api/v1/control-plane/installations", methods: ["post", "get"] },
       { path: "/api/v1/control-plane/installations/{id}", methods: ["get"] },
       { path: "/api/v1/control-plane/installations/{id}/status", methods: ["patch"] },
+      { path: "/api/v1/control-plane/installations/{id}/enrollment", methods: ["post"] },
+      {
+        path: "/api/v1/control-plane/installations/{id}/credentials/recovery-enrollment",
+        methods: ["post"],
+      },
+      { path: "/api/v1/control-plane/installations/{id}/credentials/revoke", methods: ["post"] },
       { path: "/api/v1/auth/login", methods: ["post"] },
       { path: "/api/v1/auth/refresh", methods: ["post"] },
       { path: "/api/v1/auth/logout", methods: ["post"] },
       { path: "/api/v1/auth/me", methods: ["get"] },
+      { path: "/api/v1/installation-auth/enroll", methods: ["post"] },
+      { path: "/api/v1/installation-auth/session", methods: ["get"] },
     ];
 
     for (const { path, methods } of expectedOperations) {
@@ -78,6 +91,10 @@ describe("OpenAPI document regression", () => {
         .setTitle("POSPlatform Cloud - Control Plane API")
         .setVersion("1.0")
         .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
+        .addBearerAuth(
+          { type: "http", scheme: "bearer", bearerFormat: "<credentialId>.<secret>" },
+          "installation-bearer",
+        )
         .build(),
     );
 
@@ -95,6 +112,12 @@ describe("OpenAPI document regression", () => {
       { path: "/api/v1/control-plane/installations", method: "get" },
       { path: "/api/v1/control-plane/installations/{id}", method: "get" },
       { path: "/api/v1/control-plane/installations/{id}/status", method: "patch" },
+      { path: "/api/v1/control-plane/installations/{id}/enrollment", method: "post" },
+      {
+        path: "/api/v1/control-plane/installations/{id}/credentials/recovery-enrollment",
+        method: "post",
+      },
+      { path: "/api/v1/control-plane/installations/{id}/credentials/revoke", method: "post" },
       { path: "/api/v1/auth/me", method: "get" },
     ];
 
@@ -125,6 +148,53 @@ describe("OpenAPI document regression", () => {
       );
       expect(hasAdminBearer).toBe(false);
     }
+
+    await app.close();
+  });
+
+  it("documents installation-bearer on GET /installation-auth/session only - never mixed with admin-bearer, and absent from POST /installation-auth/enroll (CLOUD-01C-C)", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [FakeDatabaseModule, ControlPlaneModule],
+    }).compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    const document = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle("POSPlatform Cloud - Control Plane API")
+        .setVersion("1.0")
+        .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
+        .addBearerAuth(
+          { type: "http", scheme: "bearer", bearerFormat: "<credentialId>.<secret>" },
+          "installation-bearer",
+        )
+        .build(),
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function operation(path: string, method: string): any {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (document.paths[path] as any)[method];
+    }
+
+    const sessionSecurity = operation("/api/v1/installation-auth/session", "get").security;
+    expect(sessionSecurity).toEqual(
+      expect.arrayContaining([expect.objectContaining({ "installation-bearer": [] })]),
+    );
+    const sessionHasAdminBearer = (sessionSecurity ?? []).some(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (entry: any) => "admin-bearer" in entry,
+    );
+    expect(sessionHasAdminBearer).toBe(false);
+
+    const enrollSecurity = operation("/api/v1/installation-auth/enroll", "post").security;
+    const enrollHasAnyBearer = (enrollSecurity ?? []).some(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (entry: any) => "admin-bearer" in entry || "installation-bearer" in entry,
+    );
+    expect(enrollHasAnyBearer).toBe(false);
 
     await app.close();
   });

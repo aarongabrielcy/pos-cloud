@@ -12,7 +12,7 @@ talks to this service. pos-cloud only matters once an installation upgrades to *
 (integrated payment terminals, Payment Orchestrator, cloud backups, sync, consolidation,
 multi-device operation, and a future - currently frozen - POS Web).
 
-## Status: CLOUD-01C-B - Admin RBAC / Permissions / Control Plane Protection
+## Status: CLOUD-01C-C - Installation Enrollment / Credentials / Activation
 
 CLOUD-01A built the Foundation (monorepo, processes, database/cache wiring, configuration,
 observability, health checks, architecture enforcement, Docker). CLOUD-01B added the first three
@@ -23,31 +23,42 @@ for the schema/ER diagram. CLOUD-01C-A added a fourth bounded context, **Access 
 identity, Argon2id password hashing, JWT access tokens, rotating opaque refresh sessions with
 replay detection, and a `GET /auth/me` route - see
 [docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md) and
-[ADR-012](docs/adr/ADR-012-admin-authentication-strategy.md). CLOUD-01C-B extends that same package
-with RBAC and makes every administrative route deny by default - see
+[ADR-012](docs/adr/ADR-012-admin-authentication-strategy.md). CLOUD-01C-B extended that same package
+with RBAC and made every administrative route deny by default - see
 [docs/architecture/admin-rbac.md](docs/architecture/admin-rbac.md) and
-[ADR-013](docs/adr/ADR-013-admin-rbac-strategy.md). Both the CLOUD-01C-A and CLOUD-01C-B migrations
-are **not yet applied** - see "Database / migrations" below.
+[ADR-013](docs/adr/ADR-013-admin-rbac-strategy.md). CLOUD-01C-C adds a second, completely independent
+identity plane for POS machines - one-time enrollment codes, an opaque permanent credential, and real
+activation (`PENDING -> ACTIVE`) - see
+[docs/architecture/installation-enrollment.md](docs/architecture/installation-enrollment.md) and
+[ADR-014](docs/adr/ADR-014-installation-enrollment-strategy.md). The CLOUD-01C-A and CLOUD-01C-B
+migrations are applied; the two CLOUD-01C-C migrations are **not yet applied** - see
+"Database / migrations" below.
 
-**Every Customers/Licenses/Installations route now requires a Bearer admin access token and the
+**Every Customers/Licenses/Installations route requires a Bearer admin access token and the
 specific RBAC permission it needs.** `POST /api/v1/auth/{login,refresh,logout}` and `/health*`
 remain reachable without one; `GET /api/v1/auth/me` requires a valid token but no specific
 permission. A handler with no explicit `@Public()`/`@AuthenticatedOnly()`/`@RequirePermissions()`
 classification is denied by default, even if authenticated - see
 [admin-rbac.md#default-deny](docs/architecture/admin-rbac.md#default-deny). `/docs` and
 `/openapi.json` themselves are unauthenticated (dev-only, `NODE_ENV !== "production"`), same as
-before - only the _business operations_ they describe now require credentials.
+before - only the _business operations_ they describe now require credentials. `/api/v1/installation-auth/*`
+is a **separate machine identity plane** (an admin access JWT is never accepted there, and an
+installation credential is never accepted on an admin route) - see
+[installation-enrollment.md#identity-separation](docs/architecture/installation-enrollment.md#identity-separation).
 
 Mercado Pago and the Point A910 terminal are **not implemented here** - they arrive later as a
 Payment Orchestrator adapter (CLOUD-03), behind a Ports/Adapters boundary
 ([ADR-008](docs/adr/ADR-008-provider-integrations-behind-ports-and-adapters.md)). Payment
-Orchestrator itself is **planned**, not implemented, in this repository state. Same for
-installation activation/enrollment, heartbeat/health ingestion, an audit event store, and everything
-else listed in the "Not implemented"/"Non-goals" sections of
+Orchestrator itself is **planned**, not implemented, in this repository state. Installation
+enrollment/credentials/activation are implemented as of CLOUD-01C-C (pending the two migrations
+above); heartbeat/health ingestion, an audit event store, periodic credential rotation, and
+everything else listed in the "Not implemented"/"Non-goals" sections of
 [control-plane-core.md](docs/architecture/control-plane-core.md#not-implemented-in-cloud-01b),
 [admin-authentication.md](docs/architecture/admin-authentication.md#not-implemented-in-cloud-01c-a),
-and [admin-rbac.md](docs/architecture/admin-rbac.md#non-goals) (role/permission administration
-endpoints, MFA, rate limiting, password recovery, and more).
+[admin-rbac.md](docs/architecture/admin-rbac.md#non-goals), and
+[installation-enrollment.md](docs/architecture/installation-enrollment.md#non-goals-cloud-01c-c)
+remain planned (role/permission administration endpoints, MFA, rate limiting, password recovery, and
+more).
 
 ## Architecture
 
@@ -83,10 +94,10 @@ All ADRs: [docs/adr/](docs/adr/). Control Plane design in full:
 Two deployable processes of the same modular monolith
 ([ADR-004](docs/adr/ADR-004-separate-api-and-worker-deployables.md)):
 
-| Process       | What it is                                        | What it does as of this state                                                                                                                                                                                                 |
-| ------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/api`    | NestJS HTTP process                               | `/health`, `/health/live`, `/health/ready` (`@Public()`); helmet; global `ValidationPipe`; structured logging with correlation IDs; graceful shutdown. Admin login/RBAC on every other route (see "Control Plane API" below). |
-| `apps/worker` | NestJS application-context process (no HTTP port) | Loads config, connects PostgreSQL + Redis, stays alive on those connections, shuts down cleanly on SIGTERM/SIGINT. No business jobs yet - ships a standalone `dist/healthcheck.js` for Docker instead of an HTTP port.        |
+| Process       | What it is                                        | What it does as of this state                                                                                                                                                                                                                                                                         |
+| ------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`    | NestJS HTTP process                               | `/health`, `/health/live`, `/health/ready` (`@Public()`); helmet; global `ValidationPipe`; structured logging with correlation IDs; graceful shutdown. Admin login/RBAC on business routes, plus a separate installation identity plane under `/installation-auth/*` (see "Control Plane API" below). |
+| `apps/worker` | NestJS application-context process (no HTTP port) | Loads config, connects PostgreSQL + Redis, stays alive on those connections, shuts down cleanly on SIGTERM/SIGINT. No business jobs yet - ships a standalone `dist/healthcheck.js` for Docker instead of an HTTP port.                                                                                |
 
 ## Requirements
 
@@ -127,6 +138,10 @@ each process's full runtime configuration.
 `AUTH_REFRESH_COOKIE_NAME`, CLOUD-01C-A) - **deliberately absent from `infrastructure.env` and
 `worker.env`**: only `apps/api` has an authentication surface, so only it needs `AUTH_JWT_SECRET`.
 See [docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md#config-auth_).
+`api.env` also carries `INSTALLATION_ENROLLMENT_TTL_SECONDS` (default 900, CLOUD-01C-C) - loaded
+independently of the `AUTH_*` group, since installation identity's configuration must never be
+coupled to AdminUser identity's - see
+[installation-enrollment.md](docs/architecture/installation-enrollment.md#config).
 
 This repo only ships [.env.example](.env.example) - variable **names** with non-sensitive
 placeholders, for reference and for running a process directly on the host (outside Docker).
@@ -230,11 +245,12 @@ standalone script (no Nest bootstrap) that checks PostgreSQL and Redis the same 
 
 Business routes live under `/api/v1/control-plane/...` (health endpoints above are unaffected):
 
-| Resource      | Routes                                                                                                                                                  | Required permission (see [admin-rbac.md](docs/architecture/admin-rbac.md))                        |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Customers     | `POST /customers`, `GET /customers/:id`, `GET /customers` (paginated), `PATCH /customers/:id/status`                                                    | `customers.create`, `customers.read` (x2), `customers.status.change`                              |
-| Licenses      | `POST /licenses`, `GET /licenses/:id` (incl. entitlements), `GET /licenses` (paginated), `PATCH /licenses/:id/status`, `PUT /licenses/:id/entitlements` | `licenses.create`, `licenses.read` (x2), `licenses.status.change`, `licenses.entitlements.manage` |
-| Installations | `POST /installations`, `GET /installations/:id`, `GET /installations` (paginated), `PATCH /installations/:id/status`                                    | `installations.create`, `installations.read` (x2), `installations.status.change`                  |
+| Resource      | Routes                                                                                                                                                      | Required permission (see [admin-rbac.md](docs/architecture/admin-rbac.md))                                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customers     | `POST /customers`, `GET /customers/:id`, `GET /customers` (paginated), `PATCH /customers/:id/status`                                                        | `customers.create`, `customers.read` (x2), `customers.status.change`                                                                                                                            |
+| Licenses      | `POST /licenses`, `GET /licenses/:id` (incl. entitlements), `GET /licenses` (paginated), `PATCH /licenses/:id/status`, `PUT /licenses/:id/entitlements`     | `licenses.create`, `licenses.read` (x2), `licenses.status.change`, `licenses.entitlements.manage`                                                                                               |
+| Installations | `POST /installations`, `GET /installations/:id`, `GET /installations` (paginated), `PATCH /installations/:id/status`                                        | `installations.create`, `installations.read` (x2), `installations.status.change`                                                                                                                |
+| Installations | `POST /installations/:id/enrollment`, `POST /installations/:id/credentials/recovery-enrollment`, `POST /installations/:id/credentials/revoke` (CLOUD-01C-C) | `installations.enrollment.manage`, `installations.credentials.manage` (x2) - see [installation-enrollment.md#admin-permissions](docs/architecture/installation-enrollment.md#admin-permissions) |
 
 (all under `/api/v1/control-plane/`, all requiring a Bearer admin access token as of CLOUD-01C-B).
 List endpoints share one pagination contract: `page` (default
@@ -248,16 +264,24 @@ specific permission - `@AuthenticatedOnly()`) - see
 [docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md). No
 `register`/`signup` endpoint exists; admins are created only via `pnpm admin:bootstrap`.
 
+**Installation Auth** (under `/api/v1/installation-auth`, CLOUD-01C-C - a machine identity plane,
+completely separate from the admin `Auth`/RBAC above): `POST /enroll` (no Bearer token of any kind -
+the one-time enrollment code in the request body is this endpoint's own authentication mechanism),
+`GET /session` (installation-Bearer-protected, minimal identity check) - see
+[docs/architecture/installation-enrollment.md](docs/architecture/installation-enrollment.md).
+
 **OpenAPI** is generated at runtime from live decorators (never a static file) - in any
 non-production environment: Swagger UI at `GET /docs`, raw document at `GET /openapi.json`. See
 [ADR-011](docs/adr/ADR-011-openapi-as-contract-with-pos-admin-web.md). The document declares an
-`admin-bearer` HTTP Bearer security scheme on `GET /auth/me` and every business operation above. The future admin frontend
-(`pos-admin-web`, a separate repository - not created here) will generate its API client from
+`admin-bearer` HTTP Bearer security scheme on `GET /auth/me` and every business operation above, and a
+separate `installation-bearer` scheme on `GET /installation-auth/session` only. The future admin
+frontend (`pos-admin-web`, a separate repository - not created here) will generate its API client from
 `/openapi.json`; this repository never shares TypeScript source with it.
 
 Installation activation (`PENDING -> ACTIVE`) is intentionally **not** exposed through the admin
-status-change endpoint - see
-[control-plane-core.md](docs/architecture/control-plane-core.md#installation-activation-is-intentionally-not-exposed).
+status-change endpoint - as of CLOUD-01C-C it only ever happens through a successful machine
+enrollment (`POST /installation-auth/enroll`), never an admin action - see
+[installation-enrollment.md](docs/architecture/installation-enrollment.md#initial-vs-recovery-enrollment).
 
 ## Database / migrations
 
@@ -267,7 +291,7 @@ status-change endpoint - see
   ([ADR-005](docs/adr/ADR-005-postgresql-and-redis.md)).
 - A single reusable `DataSource` configuration (`libs/database`) is shared by `apps/api`,
   `apps/worker`, and `migration:create`/`show`/`run`/`revert`.
-- Three migrations exist:
+- Five migrations exist:
   1. [`1786312046358-CreateControlPlaneCore.ts`](libs/database/src/migrations/1786312046358-CreateControlPlaneCore.ts) -
      creates the `control_plane`, `licensing`, and `installations` schemas and their four tables (see
      [docs/architecture/control-plane-data-model.md](docs/architecture/control-plane-data-model.md)).
@@ -275,13 +299,23 @@ status-change endpoint - see
   2. [`1786391749789-CreateAccessManagementAuth.ts`](libs/database/src/migrations/1786391749789-CreateAccessManagementAuth.ts) -
      creates the `access_management` schema and its `admin_users`/`admin_sessions` tables (CLOUD-01C-A,
      see [docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md)).
-     **Not yet applied** - review the migration source before running `pnpm migration:run`.
+     **Applied**.
   3. [`1786551814732-CreateAccessManagementRbac.ts`](libs/database/src/migrations/1786551814732-CreateAccessManagementRbac.ts) -
      adds `permissions`/`admin_roles`/`role_permissions`/`admin_user_roles` to the `access_management`
      schema, seeds the V1 catalog (10 permissions, 3 roles, 22 mappings), and backfills `PLATFORM_ADMIN`
      onto any pre-existing `admin_users` row (CLOUD-01C-B, see
-     [docs/architecture/admin-rbac.md](docs/architecture/admin-rbac.md)). **Not yet applied** - must run
-     after migration #2 - review the migration source before running `pnpm migration:run`.
+     [docs/architecture/admin-rbac.md](docs/architecture/admin-rbac.md)). **Applied** - immutable from
+     this point on, never edited again (see ADR-014's own note).
+  4. [`1786568237542-CreateInstallationEnrollmentCredentials.ts`](libs/database/src/migrations/1786568237542-CreateInstallationEnrollmentCredentials.ts) -
+     adds `installation_enrollments`/`installation_credentials` to the `installations` schema
+     (CLOUD-01C-C, see
+     [docs/architecture/installation-enrollment.md](docs/architecture/installation-enrollment.md#data-model)).
+     **Not yet applied** - review the migration source before running `pnpm migration:run`.
+  5. [`1786568239053-ExtendAccessManagementRbacForInstallationEnrollment.ts`](libs/database/src/migrations/1786568239053-ExtendAccessManagementRbacForInstallationEnrollment.ts) -
+     adds `installations.enrollment.manage`/`installations.credentials.manage` and their role mappings
+     to `access_management` (CLOUD-01C-C, see
+     [docs/architecture/installation-enrollment.md](docs/architecture/installation-enrollment.md#admin-permissions)).
+     **Not yet applied** - review the migration source before running `pnpm migration:run`.
 
 ```sh
 pnpm migration:create      # scaffold an empty migration file - local, no Docker
@@ -344,11 +378,11 @@ pos-cloud/
 │   └── control-plane/
 │       ├── customer-management/   Customer aggregate - domain/application/infrastructure/presentation
 │       ├── licensing/              License + LicenseEntitlement aggregates
-│       ├── installations/          Installation aggregate
+│       ├── installations/          Installation aggregate + InstallationEnrollment/InstallationCredential (CLOUD-01C-C)
 │       └── access-management/      AdminUser + AdminSession (CLOUD-01C-A), RBAC/AdminRole (CLOUD-01C-B)
 ├── docs/
-│   ├── architecture/    overview.md, control-plane-core.md, control-plane-data-model.md, admin-authentication.md
-│   └── adr/             ADR-001 .. ADR-012
+│   ├── architecture/    overview.md, control-plane-core.md, control-plane-data-model.md, admin-authentication.md, admin-rbac.md, installation-enrollment.md
+│   └── adr/             ADR-001 .. ADR-014
 ├── tests/
 │   └── architecture/    dependency-cruiser ruleset documentation
 ├── .env.example
@@ -391,11 +425,13 @@ Docker Compose itself is not part of this repository - see
   applied.
 - **CLOUD-01C-A** - Admin Identity & Authentication Foundation: AdminUser, Argon2id,
   JWT access tokens, rotating opaque refresh sessions, `GET /auth/me`, bootstrap tooling. Migration
-  **not yet applied**.
-- **CLOUD-01C-B** (this state) - RBAC (roles/permissions) on top of Access Management, blanket
-  Control Plane route protection, default-deny. Migration **not yet applied**. Installation
-  enrollment/credentials, heartbeat/health ingestion, and audit event persistence remain for
-  CLOUD-01C-C/CLOUD-01C-D.
+  applied.
+- **CLOUD-01C-B** - RBAC (roles/permissions) on top of Access Management, blanket
+  Control Plane route protection, default-deny. Migration applied.
+- **CLOUD-01C-C** (this state) - Installation Enrollment / Credentials / Activation: one-time
+  enrollment codes (INITIAL/RECOVERY), an opaque permanent credential, real `PENDING -> ACTIVE`
+  activation, a separate machine identity plane (`/installation-auth/*`). Migrations **not yet
+  applied**. Heartbeat/health ingestion and audit event persistence remain for CLOUD-01C-D.
 - **CLOUD-02** - Payment Orchestrator Core
 - **CLOUD-03** - Mercado Pago Adapter (behind the Ports/Adapters boundary from
   [ADR-008](docs/adr/ADR-008-provider-integrations-behind-ports-and-adapters.md))

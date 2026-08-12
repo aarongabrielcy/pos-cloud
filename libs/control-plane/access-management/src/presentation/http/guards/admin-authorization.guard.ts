@@ -1,6 +1,11 @@
 import { type CanActivate, type ExecutionContext, Inject, Injectable } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { ForbiddenError, UnauthorizedError } from "@pos-cloud/shared-kernel";
+import {
+  ForbiddenError,
+  IS_INSTALLATION_AUTHENTICATED_KEY,
+  IS_INSTALLATION_ENROLLMENT_KEY,
+  UnauthorizedError,
+} from "@pos-cloud/shared-kernel";
 import {
   PERMISSION_RESOLVER,
   type PermissionResolverPort,
@@ -18,11 +23,12 @@ const GENERIC_FORBIDDEN_MESSAGE = "You do not have permission to perform this ac
  * time this runs, `request.currentAdmin` is already populated for any non-`@Public()` route (see
  * that guard's own comment).
  *
- * Default-deny: a handler with none of `@Public()`, `@AuthenticatedOnly()`, or
- * `@RequirePermissions()` is rejected with 403, even though it's authenticated - see
- * docs/architecture/admin-rbac.md#default-deny. This is the deliberate fix for "a developer adds a
- * new administrative endpoint and forgets to annotate it": the endpoint fails loudly (403 on first
- * use/test) instead of silently being reachable by any authenticated admin.
+ * Default-deny: a handler with none of `@Public()`, `@AuthenticatedOnly()`, `@RequirePermissions()`,
+ * `@InstallationEnrollment()`, or `@InstallationAuthenticated()` is rejected with 403, even though
+ * it's authenticated - see docs/architecture/admin-rbac.md#default-deny and docs/architecture/
+ * installation-enrollment.md#guards. This is the deliberate fix for "a developer adds a new
+ * administrative (or machine) endpoint and forgets to annotate it": the endpoint fails loudly (403 on
+ * first use/test) instead of silently being reachable by any authenticated admin.
  *
  * The 403 body is always the same generic message/code regardless of the actual reason (missing
  * permission vs. SUSPENDED resolving to an empty set, see TypeOrmPermissionResolverAdapter) -
@@ -45,6 +51,15 @@ export class AdminAuthorizationGuard implements CanActivate {
     }
 
     if (this.reflector.getAllAndOverride<boolean>(IS_AUTHENTICATED_ONLY_KEY, targets)) {
+      return true;
+    }
+
+    // Installation identity plane - no admin RBAC permission to resolve here; InstallationAuthGuard
+    // (owned by `installations`) performs the real check on `@InstallationAuthenticated()` routes.
+    if (this.reflector.getAllAndOverride<boolean>(IS_INSTALLATION_ENROLLMENT_KEY, targets)) {
+      return true;
+    }
+    if (this.reflector.getAllAndOverride<boolean>(IS_INSTALLATION_AUTHENTICATED_KEY, targets)) {
       return true;
     }
 

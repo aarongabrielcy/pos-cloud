@@ -1,6 +1,10 @@
 import { type CanActivate, type ExecutionContext, Inject, Injectable } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { UnauthorizedError } from "@pos-cloud/shared-kernel";
+import {
+  IS_INSTALLATION_AUTHENTICATED_KEY,
+  IS_INSTALLATION_ENROLLMENT_KEY,
+  UnauthorizedError,
+} from "@pos-cloud/shared-kernel";
 import {
   ACCESS_TOKEN_VERIFIER,
   type AccessTokenVerifierPort,
@@ -15,6 +19,12 @@ import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
  * registration order in ControlPlaneModule), so a missing/invalid token always produces 401, never
  * 403 - a request that hasn't authenticated yet has nothing for AdminAuthorizationGuard to resolve
  * permissions against.
+ *
+ * Since CLOUD-01C-C also skips `@InstallationEnrollment()`/`@InstallationAuthenticated()` routes
+ * (both `installations`-owned decorators, their metadata keys imported from shared-kernel - see that
+ * key file's own comment) - this guard has no concept of installation credentials, and the
+ * installation identity plane is authenticated separately by InstallationAuthGuard - see
+ * docs/architecture/installation-enrollment.md#guards.
  */
 @Injectable()
 export class AccessTokenGuard implements CanActivate {
@@ -24,11 +34,17 @@ export class AccessTokenGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (isPublic) {
+    const targets = [context.getHandler(), context.getClass()];
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets);
+    const isInstallationEnrollment = this.reflector.getAllAndOverride<boolean>(
+      IS_INSTALLATION_ENROLLMENT_KEY,
+      targets,
+    );
+    const isInstallationAuthenticated = this.reflector.getAllAndOverride<boolean>(
+      IS_INSTALLATION_AUTHENTICATED_KEY,
+      targets,
+    );
+    if (isPublic || isInstallationEnrollment || isInstallationAuthenticated) {
       return true;
     }
 

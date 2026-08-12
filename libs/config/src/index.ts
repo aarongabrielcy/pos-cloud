@@ -3,5 +3,8 @@ export * from "./auth-config";
 export * from "./auth-env.schema";
 export * from "./config-validation.error";
 export * from "./env.schema";
+export * from "./installation-auth-config";
+export * from "./installation-auth-env.schema";
 export * from "./load-auth-config";
 export * from "./load-config";
+export * from "./load-installation-auth-config";

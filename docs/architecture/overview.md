@@ -111,7 +111,9 @@ versioned.
   [admin-authentication.md](./admin-authentication.md)); since CLOUD-01C-B every
   Customers/Licenses/Installations route requires a Bearer admin access token and the specific RBAC
   permission the request needs (see [admin-rbac.md](./admin-rbac.md)) - only login/refresh/logout
-  and health remain reachable without one.
+  and health remain reachable without one. Since CLOUD-01C-C, `/installation-auth/*` is a second,
+  completely independent identity plane for POS machines - never an admin JWT, never RBAC (see
+  [installation-enrollment.md](./installation-enrollment.md)).
 - **apps/worker**: NestJS application-context process (no HTTP port). Boots configuration,
   logging, PostgreSQL and Redis connections, and stays alive on those open connections. Exposes a
   standalone `dist/healthcheck.js` script (no NestJS bootstrap) for Docker `HEALTHCHECK`, since

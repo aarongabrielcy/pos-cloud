@@ -2,14 +2,18 @@ import type { INestApplication } from "@nestjs/common";
 import {
   ChangeInstallationStatusUseCase,
   CreateInstallationUseCase,
+  EnrollInstallationUseCase,
   GetInstallationByIdUseCase,
+  InstallationNotEligibleForEnrollmentError,
   InstallationNotFoundError,
   InstallationsModule,
   InstallationStatus,
   InvalidInstallationStatusTransitionError,
+  IssueInstallationEnrollmentUseCase,
   LicenseCapacityExceededError,
   ListInstallationsUseCase,
   Platform,
+  RevokeInstallationCredentialUseCase,
 } from "@pos-cloud/installations";
 import request from "supertest";
 import { fakeInstallation } from "../test-support/fixtures";
@@ -21,6 +25,8 @@ describe("Installations HTTP contract", () => {
   let getInstallationByIdUseCase: { execute: jest.Mock };
   let listInstallationsUseCase: { execute: jest.Mock };
   let changeInstallationStatusUseCase: { execute: jest.Mock };
+  let issueInstallationEnrollmentUseCase: { execute: jest.Mock };
+  let revokeInstallationCredentialUseCase: { execute: jest.Mock };
 
   const customerId = "11111111-1111-4111-8111-111111111111";
   const licenseId = "22222222-2222-4222-8222-222222222222";
@@ -30,6 +36,8 @@ describe("Installations HTTP contract", () => {
     getInstallationByIdUseCase = { execute: jest.fn() };
     listInstallationsUseCase = { execute: jest.fn() };
     changeInstallationStatusUseCase = { execute: jest.fn() };
+    issueInstallationEnrollmentUseCase = { execute: jest.fn() };
+    revokeInstallationCredentialUseCase = { execute: jest.fn() };
 
     const moduleBuilder = createHttpTestModuleBuilder([InstallationsModule])
       .overrideProvider(CreateInstallationUseCase)
@@ -39,7 +47,13 @@ describe("Installations HTTP contract", () => {
       .overrideProvider(ListInstallationsUseCase)
       .useValue(listInstallationsUseCase)
       .overrideProvider(ChangeInstallationStatusUseCase)
-      .useValue(changeInstallationStatusUseCase);
+      .useValue(changeInstallationStatusUseCase)
+      .overrideProvider(IssueInstallationEnrollmentUseCase)
+      .useValue(issueInstallationEnrollmentUseCase)
+      .overrideProvider(RevokeInstallationCredentialUseCase)
+      .useValue(revokeInstallationCredentialUseCase)
+      .overrideProvider(EnrollInstallationUseCase)
+      .useValue({ execute: jest.fn() });
 
     app = await initHttpTestApp(moduleBuilder);
   });
@@ -282,6 +296,124 @@ describe("Installations HTTP contract", () => {
       const response = await request(app.getHttpServer())
         .patch("/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/status")
         .send({ status: InstallationStatus.SUSPENDED });
+
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe("POST /api/v1/control-plane/installations/:id/enrollment", () => {
+    it("returns 201 with the one-time enrollmentCode for a PENDING installation", async () => {
+      issueInstallationEnrollmentUseCase.execute.mockResolvedValue({
+        installationId: "44444444-4444-4444-8444-444444444444",
+        enrollmentCode: "enrollment-id.enrollment-secret",
+        expiresAt: new Date("2026-01-01T00:15:00.000Z"),
+      });
+
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/enrollment",
+      );
+
+      expect(response.status).toBe(201);
+      expect(response.body.enrollmentCode).toBe("enrollment-id.enrollment-secret");
+      expect(issueInstallationEnrollmentUseCase.execute).toHaveBeenCalledWith({
+        installationId: "44444444-4444-4444-8444-444444444444",
+        purpose: "INITIAL",
+      });
+    });
+
+    it("returns 409 with the error contract when the installation is not eligible (not PENDING)", async () => {
+      issueInstallationEnrollmentUseCase.execute.mockRejectedValue(
+        new InstallationNotEligibleForEnrollmentError(
+          "44444444-4444-4444-8444-444444444444",
+          InstallationStatus.ACTIVE,
+          "INITIAL" as never,
+        ),
+      );
+
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/enrollment",
+      );
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe("INSTALLATION_NOT_ELIGIBLE_FOR_ENROLLMENT");
+    });
+
+    it("returns 400 for an invalid UUID", async () => {
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/not-a-uuid/enrollment",
+      );
+
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe("POST /api/v1/control-plane/installations/:id/credentials/recovery-enrollment", () => {
+    it("returns 201 with the one-time enrollmentCode for an ACTIVE/SUSPENDED installation", async () => {
+      issueInstallationEnrollmentUseCase.execute.mockResolvedValue({
+        installationId: "44444444-4444-4444-8444-444444444444",
+        enrollmentCode: "recovery-id.recovery-secret",
+        expiresAt: new Date("2026-01-01T00:15:00.000Z"),
+      });
+
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/recovery-enrollment",
+      );
+
+      expect(response.status).toBe(201);
+      expect(issueInstallationEnrollmentUseCase.execute).toHaveBeenCalledWith({
+        installationId: "44444444-4444-4444-8444-444444444444",
+        purpose: "RECOVERY",
+      });
+    });
+
+    it("returns 409 with the error contract when the installation is not eligible (PENDING/DECOMMISSIONED)", async () => {
+      issueInstallationEnrollmentUseCase.execute.mockRejectedValue(
+        new InstallationNotEligibleForEnrollmentError(
+          "44444444-4444-4444-8444-444444444444",
+          InstallationStatus.DECOMMISSIONED,
+          "RECOVERY" as never,
+        ),
+      );
+
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/recovery-enrollment",
+      );
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe("INSTALLATION_NOT_ELIGIBLE_FOR_ENROLLMENT");
+    });
+  });
+
+  describe("POST /api/v1/control-plane/installations/:id/credentials/revoke", () => {
+    it("returns 204 (no body) on success", async () => {
+      revokeInstallationCredentialUseCase.execute.mockResolvedValue(undefined);
+
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/revoke",
+      );
+
+      expect(response.status).toBe(204);
+      expect(response.body).toEqual({});
+    });
+
+    it("returns 204 even when there was no active credential (idempotent)", async () => {
+      revokeInstallationCredentialUseCase.execute.mockResolvedValue(undefined);
+
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/revoke",
+      );
+
+      expect(response.status).toBe(204);
+    });
+
+    it("returns 404 when the installation does not exist", async () => {
+      revokeInstallationCredentialUseCase.execute.mockRejectedValue(
+        new InstallationNotFoundError("44444444-4444-4444-8444-444444444444"),
+      );
+
+      const response = await request(app.getHttpServer()).post(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/revoke",
+      );
 
       expect(response.status).toBe(404);
     });

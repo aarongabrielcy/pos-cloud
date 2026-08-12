@@ -15,6 +15,8 @@ describe("redaction configuration", () => {
       "access_token",
       "refresh_token",
       "client_secret",
+      "enrollmentCode",
+      "credential",
     ];
 
     for (const field of required) {

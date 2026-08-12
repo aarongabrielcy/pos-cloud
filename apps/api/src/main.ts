@@ -53,7 +53,10 @@ async function bootstrap(): Promise<void> {
   // a Bearer access token AND the specific permission listed in docs/architecture/admin-rbac.md's
   // protection matrix (AccessTokenGuard + AdminAuthorizationGuard, registered globally in
   // ControlPlaneModule) - only login/refresh/logout (@Public()) and /health (@Public()) are reachable
-  // without one.
+  // without one. Since CLOUD-01C-C, `installation-bearer` is a second, separate security scheme for
+  // the machine identity plane (POST /installation-auth/enroll takes neither scheme - see
+  // docs/architecture/installation-enrollment.md#openapi) - the two schemes are never mixed on the
+  // same route, since an admin JWT and an installation credential are not interchangeable.
   if (config.env !== "production") {
     const document = SwaggerModule.createDocument(
       app,
@@ -61,14 +64,20 @@ async function bootstrap(): Promise<void> {
         .setTitle("POSPlatform Cloud - Control Plane API")
         .setDescription(
           "Vendor/Admin Control Plane: Customer Management, Licensing, Installations, Auth. " +
-            "Customers/Licenses/Installations require a Bearer admin access token and RBAC permission.",
+            "Customers/Licenses/Installations require a Bearer admin access token and RBAC permission. " +
+            "installation-auth is a separate machine identity plane with its own Bearer scheme.",
         )
         .setVersion("1.0")
         .addTag("customers")
         .addTag("licenses")
         .addTag("installations")
         .addTag("auth")
+        .addTag("installation-auth")
         .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
+        .addBearerAuth(
+          { type: "http", scheme: "bearer", bearerFormat: "<credentialId>.<secret>" },
+          "installation-bearer",
+        )
         .build(),
     );
     SwaggerModule.setup("docs", app, document);

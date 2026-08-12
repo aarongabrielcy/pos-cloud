@@ -7,3 +7,5 @@
  * this file.
  */
 export { InstallationRecord } from "./infrastructure/persistence/installation.record";
+export { InstallationEnrollmentRecord } from "./infrastructure/persistence/installation-enrollment.record";
+export { InstallationCredentialRecord } from "./infrastructure/persistence/installation-credential.record";
