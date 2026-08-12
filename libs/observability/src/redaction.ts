@@ -11,6 +11,12 @@ export const SENSITIVE_FIELD_NAMES = [
   "access_token",
   "refresh_token",
   "client_secret",
+  // CLOUD-01C-C: the plaintext one-time enrollment code and permanent installation credential -
+  // pino-http does not log request/response bodies by default today (checked before adding these,
+  // not assumed), so nothing currently leaks; this is defense-in-depth ahead of any future logging
+  // change, matching this file's own stated philosophy.
+  "enrollmentCode",
+  "credential",
 ] as const;
 
 function pinoPathsFor(field: string): string[] {

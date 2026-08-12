@@ -14,9 +14,11 @@ describe("admin-role catalog", () => {
     );
   });
 
-  it("gives PLATFORM_OPERATOR every permission except licenses.entitlements.manage", () => {
+  it("gives PLATFORM_OPERATOR every permission except licenses.entitlements.manage and installations.credentials.manage", () => {
     expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).not.toContain("licenses.entitlements.manage");
-    expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).toHaveLength(9);
+    expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).not.toContain("installations.credentials.manage");
+    expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).toContain("installations.enrollment.manage");
+    expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).toHaveLength(10);
   });
 
   it("gives PLATFORM_ADMIN every known permission - no hardcoded role-name bypass exists to check instead", () => {

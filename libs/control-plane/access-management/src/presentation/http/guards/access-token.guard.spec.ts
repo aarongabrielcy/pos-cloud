@@ -1,6 +1,10 @@
 import type { ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { UnauthorizedError } from "@pos-cloud/shared-kernel";
+import {
+  IS_INSTALLATION_AUTHENTICATED_KEY,
+  IS_INSTALLATION_ENROLLMENT_KEY,
+  UnauthorizedError,
+} from "@pos-cloud/shared-kernel";
 import type { AccessTokenVerifierPort } from "../../../application/ports/access-token.port";
 import type { RequestWithCurrentAdmin } from "../current-admin-principal";
 import { AccessTokenGuard } from "./access-token.guard";
@@ -67,6 +71,42 @@ describe("AccessTokenGuard", () => {
       getClass: () => class {} as unknown,
     } as unknown as ExecutionContext;
     jest.spyOn(Reflector.prototype, "getAllAndOverride").mockReturnValue(true);
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(verifier.verify).not.toHaveBeenCalled();
+
+    jest.restoreAllMocks();
+  });
+
+  it("bypasses verification entirely for a route marked @InstallationEnrollment() - CLOUD-01C-C's machine enrollment endpoint", async () => {
+    const verifier: AccessTokenVerifierPort = { verify: jest.fn() };
+    const guard = new AccessTokenGuard(verifier, buildReflector());
+    const context = {
+      switchToHttp: () => ({ getRequest: () => ({ headers: {} }) }),
+      getHandler: () => (() => undefined) as unknown,
+      getClass: () => class {} as unknown,
+    } as unknown as ExecutionContext;
+    jest
+      .spyOn(Reflector.prototype, "getAllAndOverride")
+      .mockImplementation((key: unknown) => key === IS_INSTALLATION_ENROLLMENT_KEY);
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(verifier.verify).not.toHaveBeenCalled();
+
+    jest.restoreAllMocks();
+  });
+
+  it("bypasses verification entirely for a route marked @InstallationAuthenticated() - InstallationAuthGuard, not this guard, authenticates it", async () => {
+    const verifier: AccessTokenVerifierPort = { verify: jest.fn() };
+    const guard = new AccessTokenGuard(verifier, buildReflector());
+    const context = {
+      switchToHttp: () => ({ getRequest: () => ({ headers: {} }) }),
+      getHandler: () => (() => undefined) as unknown,
+      getClass: () => class {} as unknown,
+    } as unknown as ExecutionContext;
+    jest
+      .spyOn(Reflector.prototype, "getAllAndOverride")
+      .mockImplementation((key: unknown) => key === IS_INSTALLATION_AUTHENTICATED_KEY);
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(verifier.verify).not.toHaveBeenCalled();

@@ -1,11 +1,14 @@
 /**
- * The complete V1 permission catalog for administrative authorization (CLOUD-01C-B). Compile-time
- * constants are the single source of truth for `@RequirePermissions(...)` - no magic strings
- * scattered across controllers, no typo can silently create an unenforceable permission. These
- * codes are mirrored 1:1 into `access_management.permissions` by the CreateAccessManagementRbac
- * migration so `role_permissions` gets real referential integrity; a permission can only ever enter
- * the system via a deploy (this file + a migration together), never via a request - see
- * docs/architecture/admin-rbac.md#permission-catalog.
+ * The complete permission catalog for administrative authorization (CLOUD-01C-B, extended by
+ * CLOUD-01C-C). Compile-time constants are the single source of truth for `@RequirePermissions(...)`
+ * - no magic strings scattered across controllers, no typo can silently create an unenforceable
+ * permission. These codes are mirrored 1:1 into `access_management.permissions` - the original 10
+ * by migration #3 (CreateAccessManagementRbac, already executed - never modified again), the two
+ * `installations.enrollment.manage`/`installations.credentials.manage` codes by migration #5
+ * (ExtendAccessManagementRbacForInstallationEnrollment) - so `role_permissions` gets real
+ * referential integrity; a permission can only ever enter the system via a deploy (this file + a
+ * migration together), never via a request - see docs/architecture/admin-rbac.md#permission-catalog
+ * and docs/architecture/installation-enrollment.md#admin-permissions.
  */
 export const PERMISSIONS = {
   CUSTOMERS: {
@@ -23,6 +26,8 @@ export const PERMISSIONS = {
     READ: "installations.read",
     CREATE: "installations.create",
     STATUS_CHANGE: "installations.status.change",
+    ENROLLMENT_MANAGE: "installations.enrollment.manage",
+    CREDENTIALS_MANAGE: "installations.credentials.manage",
   },
 } as const;
 

@@ -19,9 +19,12 @@ import {
 import {
   ChangeInstallationStatusUseCase,
   CreateInstallationUseCase,
+  EnrollInstallationUseCase,
   GetInstallationByIdUseCase,
   InstallationsModule,
+  IssueInstallationEnrollmentUseCase,
   ListInstallationsUseCase,
+  RevokeInstallationCredentialUseCase,
 } from "@pos-cloud/installations";
 import {
   ChangeLicenseStatusUseCase,
@@ -95,6 +98,8 @@ describe("RBAC Control Plane protection (HTTP)", () => {
   let getCustomerByIdUseCase: { execute: jest.Mock };
   let replaceLicenseEntitlementsUseCase: { execute: jest.Mock };
   let changeInstallationStatusUseCase: { execute: jest.Mock };
+  let issueInstallationEnrollmentUseCase: { execute: jest.Mock };
+  let revokeInstallationCredentialUseCase: { execute: jest.Mock };
 
   function grant(adminUserId: string, ...codes: PermissionCode[]): void {
     resolveEffectivePermissions.mockImplementation((id: string) =>
@@ -108,6 +113,8 @@ describe("RBAC Control Plane protection (HTTP)", () => {
     getCustomerByIdUseCase = { execute: jest.fn() };
     replaceLicenseEntitlementsUseCase = { execute: jest.fn() };
     changeInstallationStatusUseCase = { execute: jest.fn() };
+    issueInstallationEnrollmentUseCase = { execute: jest.fn() };
+    revokeInstallationCredentialUseCase = { execute: jest.fn() };
 
     const moduleBuilder = createHttpTestModuleBuilder([
       TestAuthConfigModule,
@@ -149,7 +156,13 @@ describe("RBAC Control Plane protection (HTTP)", () => {
       .overrideProvider(ListInstallationsUseCase)
       .useValue({ execute: jest.fn() })
       .overrideProvider(ChangeInstallationStatusUseCase)
-      .useValue(changeInstallationStatusUseCase);
+      .useValue(changeInstallationStatusUseCase)
+      .overrideProvider(IssueInstallationEnrollmentUseCase)
+      .useValue(issueInstallationEnrollmentUseCase)
+      .overrideProvider(RevokeInstallationCredentialUseCase)
+      .useValue(revokeInstallationCredentialUseCase)
+      .overrideProvider(EnrollInstallationUseCase)
+      .useValue({ execute: jest.fn() });
 
     app = await initHttpTestApp(moduleBuilder);
   });
@@ -321,6 +334,84 @@ describe("RBAC Control Plane protection (HTTP)", () => {
         .send({ status: "SUSPENDED" });
 
       expect(response.status).toBe(200);
+    });
+
+    it("allows installations.credentials.manage (revoke)", async () => {
+      const token = await signAccessToken("admin-platform-admin");
+      grant("admin-platform-admin", "installations.credentials.manage");
+      revokeInstallationCredentialUseCase.execute.mockResolvedValue(undefined);
+
+      const response = await request(app.getHttpServer())
+        .post(
+          "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/revoke",
+        )
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(204);
+    });
+  });
+
+  describe("installations.enrollment.manage vs installations.credentials.manage - CLOUD-01C-C role separation", () => {
+    it("PLATFORM_OPERATOR can issue an initial enrollment code", async () => {
+      const token = await signAccessToken("admin-operator-enrollment");
+      grant("admin-operator-enrollment", "installations.enrollment.manage");
+      issueInstallationEnrollmentUseCase.execute.mockResolvedValue({
+        installationId: "44444444-4444-4444-8444-444444444444",
+        enrollmentCode: "id.secret",
+        expiresAt: new Date("2026-01-01T00:15:00.000Z"),
+      });
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/enrollment")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(201);
+    });
+
+    it("PLATFORM_OPERATOR is forbidden from revoking a credential - installations.credentials.manage is PLATFORM_ADMIN-only", async () => {
+      const token = await signAccessToken("admin-operator-no-credentials");
+      grant("admin-operator-no-credentials", "installations.enrollment.manage");
+
+      const response = await request(app.getHttpServer())
+        .post(
+          "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/revoke",
+        )
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(403);
+      expect(revokeInstallationCredentialUseCase.execute).not.toHaveBeenCalled();
+    });
+
+    it("PLATFORM_OPERATOR is forbidden from issuing a recovery enrollment - installations.credentials.manage is PLATFORM_ADMIN-only", async () => {
+      const token = await signAccessToken("admin-operator-no-recovery");
+      grant("admin-operator-no-recovery", "installations.enrollment.manage");
+
+      const response = await request(app.getHttpServer())
+        .post(
+          "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/recovery-enrollment",
+        )
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(403);
+      expect(issueInstallationEnrollmentUseCase.execute).not.toHaveBeenCalled();
+    });
+
+    it("PLATFORM_ADMIN can issue a recovery enrollment", async () => {
+      const token = await signAccessToken("admin-platform-admin-recovery");
+      grant("admin-platform-admin-recovery", "installations.credentials.manage");
+      issueInstallationEnrollmentUseCase.execute.mockResolvedValue({
+        installationId: "44444444-4444-4444-8444-444444444444",
+        enrollmentCode: "id.secret",
+        expiresAt: new Date("2026-01-01T00:15:00.000Z"),
+      });
+
+      const response = await request(app.getHttpServer())
+        .post(
+          "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444/credentials/recovery-enrollment",
+        )
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(201);
     });
   });
 

@@ -4,6 +4,10 @@ import { Global, Module } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { AUTH_CONFIG, type AuthConfig } from "@pos-cloud/config";
 import {
+  IS_INSTALLATION_AUTHENTICATED_KEY,
+  IS_INSTALLATION_ENROLLMENT_KEY,
+} from "@pos-cloud/shared-kernel";
+import {
   AccessManagementModule,
   GetAdminProfileUseCase,
   IS_AUTHENTICATED_ONLY_KEY,
@@ -24,9 +28,12 @@ import {
 import {
   ChangeInstallationStatusUseCase,
   CreateInstallationUseCase,
+  EnrollInstallationUseCase,
   GetInstallationByIdUseCase,
   InstallationsModule,
+  IssueInstallationEnrollmentUseCase,
   ListInstallationsUseCase,
+  RevokeInstallationCredentialUseCase,
 } from "@pos-cloud/installations";
 import {
   ChangeLicenseStatusUseCase,
@@ -55,17 +62,23 @@ interface ExpectedHandler {
   methodName: string;
   method: string;
   path: string;
-  classification: "public" | "authenticatedOnly" | PermissionCode;
+  classification:
+    | "public"
+    | "authenticatedOnly"
+    | "installationEnrollment"
+    | "installationAuthenticated"
+    | PermissionCode;
 }
 
 /**
- * The full protection matrix - 4 auth endpoints + 13 business endpoints - as data, cross-checked
- * against the real, live-compiled module graph below via NestJS's own DiscoveryService/
- * MetadataScanner (not a raw class import - controllers are deliberately excluded from every
- * package's public API, see access-management/src/index.ts's own comment; DiscoveryService reaches
- * them through Nest's internal module container instead, which has full visibility regardless).
- * A permission accidentally changed on any handler, or a new handler added without updating this
- * table, fails this test - see docs/architecture/admin-rbac.md#test-strategy.
+ * The full protection matrix - 4 auth endpoints + 16 business endpoints + 2 machine endpoints - as
+ * data, cross-checked against the real, live-compiled module graph below via NestJS's own
+ * DiscoveryService/MetadataScanner (not a raw class import - controllers are deliberately excluded
+ * from every package's public API, see access-management/src/index.ts's own comment; DiscoveryService
+ * reaches them through Nest's internal module container instead, which has full visibility
+ * regardless). A permission accidentally changed on any handler, or a new handler added without
+ * updating this table, fails this test - see docs/architecture/admin-rbac.md#test-strategy and
+ * docs/architecture/installation-enrollment.md#test-plan.
  */
 const EXPECTED_PROTECTION_MATRIX: ExpectedHandler[] = [
   {
@@ -190,6 +203,42 @@ const EXPECTED_PROTECTION_MATRIX: ExpectedHandler[] = [
     path: ":id/status",
     classification: "installations.status.change",
   },
+  {
+    controllerName: "InstallationController",
+    methodName: "issueInitialEnrollment",
+    method: "POST",
+    path: ":id/enrollment",
+    classification: "installations.enrollment.manage",
+  },
+  {
+    controllerName: "InstallationController",
+    methodName: "issueRecoveryEnrollment",
+    method: "POST",
+    path: ":id/credentials/recovery-enrollment",
+    classification: "installations.credentials.manage",
+  },
+  {
+    controllerName: "InstallationController",
+    methodName: "revokeCredential",
+    method: "POST",
+    path: ":id/credentials/revoke",
+    classification: "installations.credentials.manage",
+  },
+
+  {
+    controllerName: "InstallationAuthController",
+    methodName: "enroll",
+    method: "POST",
+    path: "enroll",
+    classification: "installationEnrollment",
+  },
+  {
+    controllerName: "InstallationAuthController",
+    methodName: "session",
+    method: "GET",
+    path: "session",
+    classification: "installationAuthenticated",
+  },
 ];
 
 describe("RBAC protection matrix - metadata cross-check via DiscoveryService", () => {
@@ -243,6 +292,12 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
       .useValue({ execute: jest.fn() })
       .overrideProvider(ChangeInstallationStatusUseCase)
       .useValue({ execute: jest.fn() })
+      .overrideProvider(IssueInstallationEnrollmentUseCase)
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(RevokeInstallationCredentialUseCase)
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(EnrollInstallationUseCase)
+      .useValue({ execute: jest.fn() })
       .compile();
 
     discoveryService = moduleRef.get(DiscoveryService);
@@ -291,6 +346,22 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
         return;
       }
 
+      if (classification === "installationEnrollment") {
+        const isInstallationEnrollment =
+          reflector.get(IS_INSTALLATION_ENROLLMENT_KEY, handler) === true ||
+          reflector.get(IS_INSTALLATION_ENROLLMENT_KEY, wrapper.metatype!) === true;
+        expect(isInstallationEnrollment).toBe(true);
+        return;
+      }
+
+      if (classification === "installationAuthenticated") {
+        const isInstallationAuthenticated =
+          reflector.get(IS_INSTALLATION_AUTHENTICATED_KEY, handler) === true ||
+          reflector.get(IS_INSTALLATION_AUTHENTICATED_KEY, wrapper.metatype!) === true;
+        expect(isInstallationAuthenticated).toBe(true);
+        return;
+      }
+
       const required = reflector.get<PermissionCode[] | undefined>(
         REQUIRED_PERMISSIONS_KEY,
         handler,
@@ -299,11 +370,12 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
     },
   );
 
-  it("every discovered CustomerController/LicenseController/InstallationController handler is accounted for in the table above - a new endpoint added without updating this file fails here", () => {
+  it("every discovered CustomerController/LicenseController/InstallationController/InstallationAuthController handler is accounted for in the table above - a new endpoint added without updating this file fails here", () => {
     const businessControllerNames = [
       "CustomerController",
       "LicenseController",
       "InstallationController",
+      "InstallationAuthController",
     ];
     const wrappers = discoveryService
       .getControllers()
@@ -325,6 +397,32 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
       businessControllerNames.includes(h.controllerName),
     ).length;
     expect(discoveredHandlerCount).toBe(expectedBusinessHandlerCount);
+  });
+
+  it("every @Public() handler discovered in this module graph is one of the 3 known genuinely-public AuthController routes - CLOUD-01C-C's @InstallationEnrollment()/@InstallationAuthenticated() must never be confused with @Public()", () => {
+    const knownPublicHandlers = new Set(
+      EXPECTED_PROTECTION_MATRIX.filter((h) => h.classification === "public").map(
+        (h) => `${h.controllerName}.${h.methodName}`,
+      ),
+    );
+    expect(knownPublicHandlers.size).toBe(3);
+
+    for (const wrapper of discoveryService.getControllers()) {
+      if (!wrapper.instance) continue;
+      const prototype = Object.getPrototypeOf(wrapper.instance);
+      for (const methodName of metadataScanner.getAllMethodNames(prototype)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const handler = (wrapper.instance as any)[methodName] as (...args: unknown[]) => unknown;
+        if (reflector.get(PATH_METADATA, handler) === undefined) continue;
+
+        const isPublic =
+          reflector.get(IS_PUBLIC_KEY, handler) === true ||
+          reflector.get(IS_PUBLIC_KEY, wrapper.metatype!) === true;
+        if (!isPublic) continue;
+
+        expect(knownPublicHandlers.has(`${wrapper.metatype!.name}.${methodName}`)).toBe(true);
+      }
+    }
   });
 });
 

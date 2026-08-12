@@ -1,6 +1,11 @@
 import type { ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { ForbiddenError, UnauthorizedError } from "@pos-cloud/shared-kernel";
+import {
+  ForbiddenError,
+  IS_INSTALLATION_AUTHENTICATED_KEY,
+  IS_INSTALLATION_ENROLLMENT_KEY,
+  UnauthorizedError,
+} from "@pos-cloud/shared-kernel";
 import { FakePermissionResolver } from "../../../test-support/fake-permission-resolver";
 import type { RequestWithCurrentAdmin } from "../current-admin-principal";
 import { IS_AUTHENTICATED_ONLY_KEY } from "../decorators/authenticated-only.decorator";
@@ -104,5 +109,25 @@ describe("AdminAuthorizationGuard", () => {
     const context = buildContext({}, metadata);
 
     await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedError);
+  });
+
+  it("allows a @InstallationEnrollment() route without resolving any permission - CLOUD-01C-C's machine enrollment endpoint", async () => {
+    const resolver = new FakePermissionResolver();
+    const resolveSpy = jest.spyOn(resolver, "resolveEffectivePermissions");
+    const guard = buildGuard(resolver, { [IS_INSTALLATION_ENROLLMENT_KEY]: true });
+    const context = buildContext({}, { [IS_INSTALLATION_ENROLLMENT_KEY]: true });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(resolveSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows a @InstallationAuthenticated() route without resolving any admin permission - InstallationAuthGuard does the real check", async () => {
+    const resolver = new FakePermissionResolver();
+    const resolveSpy = jest.spyOn(resolver, "resolveEffectivePermissions");
+    const guard = buildGuard(resolver, { [IS_INSTALLATION_AUTHENTICATED_KEY]: true });
+    const context = buildContext({}, { [IS_INSTALLATION_AUTHENTICATED_KEY]: true });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(resolveSpy).not.toHaveBeenCalled();
   });
 });
