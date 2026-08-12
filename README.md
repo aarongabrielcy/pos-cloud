@@ -12,25 +12,33 @@ talks to this service. pos-cloud only matters once an installation upgrades to *
 (integrated payment terminals, Payment Orchestrator, cloud backups, sync, consolidation,
 multi-device operation, and a future - currently frozen - POS Web).
 
-## Status: CLOUD-01B - Control Plane Core
+## Status: CLOUD-01C-A - Admin Identity & Authentication Foundation
 
 CLOUD-01A built the Foundation (monorepo, processes, database/cache wiring, configuration,
-observability, health checks, architecture enforcement, Docker). CLOUD-01B adds the first three
+observability, health checks, architecture enforcement, Docker). CLOUD-01B added the first three
 real bounded contexts on top of it: **Customer Management**, **Licensing**, and **Installations** -
 see [docs/architecture/control-plane-core.md](docs/architecture/control-plane-core.md) for the full
 design and [docs/architecture/control-plane-data-model.md](docs/architecture/control-plane-data-model.md)
-for the schema/ER diagram.
+for the schema/ER diagram. CLOUD-01C-A adds a fourth bounded context, **Access Management**: admin
+identity, Argon2id password hashing, JWT access tokens, rotating opaque refresh sessions with
+replay detection, and a `GET /auth/me` route - see
+[docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md) and
+[ADR-012](docs/adr/ADR-012-admin-authentication-strategy.md). The CLOUD-01C-A migration is
+**not yet applied** - see "Database / migrations" below.
 
-**No authentication exists yet - DO NOT DEPLOY PUBLICLY.** Every business route under
-`/api/v1/control-plane/...`, plus `/docs` and `/openapi.json`, is unauthenticated. Auth is
-CLOUD-01C+ scope.
+**Customers/Licenses/Installations remain unauthenticated - DO NOT DEPLOY PUBLICLY.** Every
+business route under `/api/v1/control-plane/...`, plus `/docs` and `/openapi.json`, has no auth
+guard. `GET /api/v1/auth/me` is the one Bearer-protected route so far. Blanket Control Plane
+protection (RBAC, a global guard) is CLOUD-01C-B scope, not this task.
 
 Mercado Pago and the Point A910 terminal are **not implemented here** - they arrive later as a
 Payment Orchestrator adapter (CLOUD-03), behind a Ports/Adapters boundary
 ([ADR-008](docs/adr/ADR-008-provider-integrations-behind-ports-and-adapters.md)). Payment
 Orchestrator itself is **planned**, not implemented, in this repository state. Same for
-installation activation, admin authentication, and everything else listed in the "Not implemented"
-section of [control-plane-core.md](docs/architecture/control-plane-core.md#not-implemented-in-cloud-01b).
+installation activation (still CLOUD-01C-B) and everything else listed in the "Not implemented"
+sections of [control-plane-core.md](docs/architecture/control-plane-core.md#not-implemented-in-cloud-01b)
+and [admin-authentication.md](docs/architecture/admin-authentication.md#not-implemented-in-cloud-01c-a)
+(RBAC, blanket route protection, MFA, rate limiting, password recovery, and more).
 
 ## Architecture
 
@@ -104,6 +112,12 @@ Docker Compose itself lives **outside this repository too**, at
 these env files directly via `env_file`, one file per concern: `infrastructure.env` bootstraps the
 `postgres` container itself (only on first init of an empty volume); `api.env`/`worker.env` carry
 each process's full runtime configuration.
+
+`api.env` also carries `AUTH_*` variables (`AUTH_JWT_SECRET`/`AUTH_JWT_ISSUER`/
+`AUTH_JWT_AUDIENCE`/`AUTH_ACCESS_TOKEN_TTL_SECONDS`/`AUTH_REFRESH_TOKEN_TTL_SECONDS`/
+`AUTH_REFRESH_COOKIE_NAME`, CLOUD-01C-A) - **deliberately absent from `infrastructure.env` and
+`worker.env`**: only `apps/api` has an authentication surface, so only it needs `AUTH_JWT_SECRET`.
+See [docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md#config-auth_).
 
 This repo only ships [.env.example](.env.example) - variable **names** with non-sensitive
 placeholders, for reference and for running a process directly on the host (outside Docker).
@@ -187,6 +201,9 @@ kept out of `up -d` with `profiles: ["tools"]`. Calling them directly from `../i
 docker compose run --rm --build pos-cloud-migration-show      # safe - lists migration state
 docker compose run --rm --build pos-cloud-migrations           # applies migrations - user only
 docker compose run --rm --build pos-cloud-migration-revert      # reverts last migration - user only
+docker compose run --rm --build \
+  -e BOOTSTRAP_ADMIN_EMAIL -e BOOTSTRAP_ADMIN_PASSWORD -e BOOTSTRAP_ADMIN_DISPLAY_NAME \
+  pos-cloud-admin-bootstrap                                     # creates the first admin - user only
 ```
 
 ## Health endpoints
@@ -215,9 +232,15 @@ Business routes live under `/api/v1/control-plane/...` (health endpoints above a
 `{ statusCode, code, message, correlationId, details? }` (see
 [docs/architecture/control-plane-core.md](docs/architecture/control-plane-core.md#http-api)).
 
+**Auth** (CLOUD-01C-A, under `/api/v1/auth`, not `/api/v1/control-plane/`):
+`POST /login`, `POST /refresh`, `POST /logout`, `GET /me` (Bearer-protected) - see
+[docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md). No
+`register`/`signup` endpoint exists; admins are created only via `pnpm admin:bootstrap`.
+
 **OpenAPI** is generated at runtime from live decorators (never a static file) - in any
 non-production environment: Swagger UI at `GET /docs`, raw document at `GET /openapi.json`. See
-[ADR-011](docs/adr/ADR-011-openapi-as-contract-with-pos-admin-web.md). The future admin frontend
+[ADR-011](docs/adr/ADR-011-openapi-as-contract-with-pos-admin-web.md). The document declares an
+`admin-bearer` HTTP Bearer security scheme for `GET /auth/me`. The future admin frontend
 (`pos-admin-web`, a separate repository - not created here) will generate its API client from
 `/openapi.json`; this repository never shares TypeScript source with it.
 
@@ -233,11 +256,16 @@ status-change endpoint - see
   ([ADR-005](docs/adr/ADR-005-postgresql-and-redis.md)).
 - A single reusable `DataSource` configuration (`libs/database`) is shared by `apps/api`,
   `apps/worker`, and `migration:create`/`show`/`run`/`revert`.
-- One migration exists:
-  [`1786312046358-CreateControlPlaneCore.ts`](libs/database/src/migrations/1786312046358-CreateControlPlaneCore.ts) -
-  creates the `control_plane`, `licensing`, and `installations` schemas and their four tables (see
-  [docs/architecture/control-plane-data-model.md](docs/architecture/control-plane-data-model.md)).
-  **Applied** - `pnpm migration:show` confirms `[X] CreateControlPlaneCore1786312046358`.
+- Two migrations exist:
+  1. [`1786312046358-CreateControlPlaneCore.ts`](libs/database/src/migrations/1786312046358-CreateControlPlaneCore.ts) -
+     creates the `control_plane`, `licensing`, and `installations` schemas and their four tables (see
+     [docs/architecture/control-plane-data-model.md](docs/architecture/control-plane-data-model.md)).
+     **Applied** - `pnpm migration:show` confirms `[X] CreateControlPlaneCore1786312046358`.
+  2. [`1786391749789-CreateAccessManagementAuth.ts`](libs/database/src/migrations/1786391749789-CreateAccessManagementAuth.ts) -
+     creates the `access_management` schema and its `admin_users`/`admin_sessions` tables (CLOUD-01C-A,
+     see [docs/architecture/admin-authentication.md](docs/architecture/admin-authentication.md)).
+     **Not yet applied** - review the migration source (see this task's report) before running
+     `pnpm migration:run`.
 
 ```sh
 pnpm migration:create      # scaffold an empty migration file - local, no Docker
@@ -245,7 +273,16 @@ pnpm migration:generate    # diff real entity metadata vs. schema and generate a
 pnpm migration:show        # list migrations and their applied state
 pnpm migration:run         # apply pending migrations
 pnpm migration:revert      # revert the last applied migration
+pnpm admin:bootstrap       # create the first AdminUser (CLOUD-01C-A) - requires migration #2 applied first
 ```
+
+`admin:bootstrap` reads `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD`/
+`BOOTSTRAP_ADMIN_DISPLAY_NAME` from your shell's own environment at invocation time (e.g.
+`BOOTSTRAP_ADMIN_EMAIL=... BOOTSTRAP_ADMIN_PASSWORD=... BOOTSTRAP_ADMIN_DISPLAY_NAME=... pnpm admin:bootstrap`)
+
+- never from any `.env` file, and never logs the password. It refuses to run a second time once any
+  AdminUser exists (`409 ADMIN_BOOTSTRAP_ALREADY_COMPLETED`). Like `migration:run`, this is a
+  user-run command, not something an assistant executes.
 
 `migration:show`/`run`/`revert` are thin wrappers around `docker compose -f
 ../infra/docker-compose.yml run --rm --build <service>` (`pos-cloud-migration-show`/
@@ -291,10 +328,11 @@ pos-cloud/
 │   └── control-plane/
 │       ├── customer-management/   Customer aggregate - domain/application/infrastructure/presentation
 │       ├── licensing/              License + LicenseEntitlement aggregates
-│       └── installations/          Installation aggregate
+│       ├── installations/          Installation aggregate
+│       └── access-management/      AdminUser + AdminSession aggregates (CLOUD-01C-A)
 ├── docs/
-│   ├── architecture/    overview.md, control-plane-core.md, control-plane-data-model.md
-│   └── adr/             ADR-001 .. ADR-011
+│   ├── architecture/    overview.md, control-plane-core.md, control-plane-data-model.md, admin-authentication.md
+│   └── adr/             ADR-001 .. ADR-012
 ├── tests/
 │   └── architecture/    dependency-cruiser ruleset documentation
 ├── .env.example
@@ -333,9 +371,13 @@ Docker Compose itself is not part of this repository - see
 
 ## Roadmap
 
-- **CLOUD-01B** (this state) - Control Plane Core: Customer Management, Licensing, Installations.
-  Migration applied.
-- **CLOUD-01C** - Installation Authentication / Health / Audit
+- **CLOUD-01B** - Control Plane Core: Customer Management, Licensing, Installations. Migration
+  applied.
+- **CLOUD-01C-A** (this state) - Admin Identity & Authentication Foundation: AdminUser, Argon2id,
+  JWT access tokens, rotating opaque refresh sessions, `GET /auth/me`, bootstrap tooling. Migration
+  **not yet applied**.
+- **CLOUD-01C-B** - RBAC (roles/permissions) on top of Access Management, blanket Control Plane
+  route protection, installation enrollment/credentials, heartbeat/health ingestion, audit
 - **CLOUD-02** - Payment Orchestrator Core
 - **CLOUD-03** - Mercado Pago Adapter (behind the Ports/Adapters boundary from
   [ADR-008](docs/adr/ADR-008-provider-integrations-behind-ports-and-adapters.md))

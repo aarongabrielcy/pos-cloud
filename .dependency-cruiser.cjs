@@ -79,7 +79,7 @@ module.exports = {
       comment:
         "Bounded contexts never import each other directly - only apps/api (the composition root) may depend on more than one context's public API, wiring the cross-context ports. Workspace package imports resolve to their real source path (pnpm symlinks are realpath-resolved), e.g. libs/control-plane/licensing/dist/index.js - not a node_modules/@pos-cloud/... path.",
       from: { path: "^libs/control-plane/customer-management" },
-      to: { path: "^libs/control-plane/(licensing|installations)" },
+      to: { path: "^libs/control-plane/(licensing|installations|access-management)" },
     },
     {
       name: "licensing-cannot-import-other-bounded-contexts",
@@ -87,7 +87,7 @@ module.exports = {
       comment:
         "Bounded contexts never import each other directly - only apps/api (the composition root) may depend on more than one context's public API, wiring the cross-context ports.",
       from: { path: "^libs/control-plane/licensing" },
-      to: { path: "^libs/control-plane/(customer-management|installations)" },
+      to: { path: "^libs/control-plane/(customer-management|installations|access-management)" },
     },
     {
       name: "installations-cannot-import-other-bounded-contexts",
@@ -95,7 +95,15 @@ module.exports = {
       comment:
         "Bounded contexts never import each other directly - only apps/api (the composition root) may depend on more than one context's public API, wiring the cross-context ports.",
       from: { path: "^libs/control-plane/installations" },
-      to: { path: "^libs/control-plane/(customer-management|licensing)" },
+      to: { path: "^libs/control-plane/(customer-management|licensing|access-management)" },
+    },
+    {
+      name: "access-management-cannot-import-other-bounded-contexts",
+      severity: "error",
+      comment:
+        "Bounded contexts never import each other directly - only apps/api (the composition root) may depend on more than one context's public API, wiring the cross-context ports. Access Management (CLOUD-01C-A) does not need any cross-context port yet - see docs/architecture/admin-authentication.md.",
+      from: { path: "^libs/control-plane/access-management" },
+      to: { path: "^libs/control-plane/(customer-management|licensing|installations)" },
     },
     {
       name: "api-cannot-depend-on-worker",

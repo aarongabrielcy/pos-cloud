@@ -107,7 +107,10 @@ versioned.
 
 - **apps/api**: NestJS HTTP process. Owns `/health`, `/health/live`, `/health/ready`. Hardened with
   helmet, a global `ValidationPipe`, structured request logging with correlation IDs, and graceful
-  shutdown. No authentication yet (planned for CLOUD-01C).
+  shutdown. Admin login/session endpoints exist as of CLOUD-01C-A (see
+  [admin-authentication.md](./admin-authentication.md)), but only `GET /auth/me` itself is
+  Bearer-protected - the Customers/Licenses/Installations business routes remain unauthenticated
+  until CLOUD-01C-B.
 - **apps/worker**: NestJS application-context process (no HTTP port). Boots configuration,
   logging, PostgreSQL and Redis connections, and stays alive on those open connections. Exposes a
   standalone `dist/healthcheck.js` script (no NestJS bootstrap) for Docker `HEALTHCHECK`, since

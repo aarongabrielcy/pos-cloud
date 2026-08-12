@@ -18,7 +18,6 @@ const config = loadConfig();
 
 export default new DataSource(
   buildDataSourceOptions(config.database, {
-    logging: config.env === "development",
     entities: controlPlaneEntities,
   }),
 );

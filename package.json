@@ -31,7 +31,9 @@
     "migration:revert": "docker compose -f ../infra/docker-compose.yml run --rm --build pos-cloud-migration-revert",
     "migration:show:internal": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:show -d src/cli/typeorm-cli-data-source.ts",
     "migration:run:internal": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:run -d src/cli/typeorm-cli-data-source.ts",
-    "migration:revert:internal": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:revert -d src/cli/typeorm-cli-data-source.ts"
+    "migration:revert:internal": "pnpm --filter @pos-cloud/database exec typeorm-ts-node-commonjs migration:revert -d src/cli/typeorm-cli-data-source.ts",
+    "admin:bootstrap": "docker compose -f ../infra/docker-compose.yml run --rm --build -e BOOTSTRAP_ADMIN_EMAIL -e BOOTSTRAP_ADMIN_DISPLAY_NAME -e BOOTSTRAP_ADMIN_PASSWORD pos-cloud-admin-bootstrap",
+    "admin:bootstrap:internal": "pnpm --filter @pos-cloud/api exec ts-node -r reflect-metadata src/tooling/admin-bootstrap.main.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",

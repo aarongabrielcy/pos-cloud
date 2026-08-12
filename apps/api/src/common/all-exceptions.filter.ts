@@ -5,7 +5,13 @@ import {
   HttpException,
   HttpStatus,
 } from "@nestjs/common";
-import { ConflictError, NotFoundError, ValidationError } from "@pos-cloud/shared-kernel";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  UnauthorizedError,
+  ValidationError,
+} from "@pos-cloud/shared-kernel";
 import type { Request, Response } from "express";
 import { PinoLogger } from "nestjs-pino";
 
@@ -20,7 +26,8 @@ interface ErrorBody {
 /**
  * Single, consistent business API error contract: { statusCode, code, message, correlationId,
  * details? }. Maps the shared-kernel error taxonomy (NotFoundError -> 404, ConflictError -> 409,
- * ValidationError -> 400) generically - it never imports a bounded-context-specific error class,
+ * ValidationError -> 400, UnauthorizedError -> 401, ForbiddenError -> 403) generically - it never
+ * imports a bounded-context-specific error class,
  * since every context's errors already extend one of these three shared base classes. Never
  * leaks a stack trace, SQL, or internal path to the client; unexpected errors are logged
  * server-side (with correlationId) and returned as a generic 500.
@@ -40,7 +47,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const body = this.buildBody(exception, correlationId);
 
     if (body.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error({ err: exception, correlationId }, "Unhandled exception");
+      // Never pass the raw exception under `err` - Pino's default error serializer copies every
+      // own enumerable property of an Error, and TypeORM's QueryFailedError carries `query`,
+      // `parameters` (may include a password/refresh-token hash), and `driverError` (whose `detail`
+      // field can carry an actual column value, e.g. an email, on a unique-constraint violation).
+      // Build an explicit safe object instead - see buildSafeLogError below.
+      this.logger.error(
+        { err: buildSafeLogError(exception), correlationId },
+        "Unhandled exception",
+      );
     }
 
     response.status(body.statusCode).json(body);
@@ -68,6 +83,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof ValidationError) {
       return {
         statusCode: HttpStatus.BAD_REQUEST,
+        code: exception.code,
+        message: exception.message,
+        correlationId,
+      };
+    }
+
+    if (exception instanceof UnauthorizedError) {
+      return {
+        statusCode: HttpStatus.UNAUTHORIZED,
+        code: exception.code,
+        message: exception.message,
+        correlationId,
+      };
+    }
+
+    if (exception instanceof ForbiddenError) {
+      return {
+        statusCode: HttpStatus.FORBIDDEN,
         code: exception.code,
         message: exception.message,
         correlationId,
@@ -117,6 +150,37 @@ function normalizeHttpExceptionResponse(
   }
 
   return { message: fallbackMessage };
+}
+
+/**
+ * Builds a safe-to-log representation of an unexpected exception: name/message/stack, plus - for a
+ * database driver error (duck-typed, not imported from typeorm/pg, so this works generically for
+ * any error shape) - only the non-sensitive diagnostic fields Postgres exposes (code/constraint/
+ * table/schema). Deliberately never touches `query`, `parameters`, `driverError.detail` (can embed
+ * an actual column value on a unique-constraint violation), or any other field - see
+ * all-exceptions.filter.spec.ts for the regression test.
+ */
+function buildSafeLogError(exception: unknown): Record<string, unknown> {
+  if (!(exception instanceof Error)) {
+    return { message: String(exception) };
+  }
+
+  const safe: Record<string, unknown> = {
+    name: exception.name,
+    message: exception.message,
+    stack: exception.stack,
+  };
+
+  const driverError = (exception as { driverError?: unknown }).driverError;
+  if (driverError && typeof driverError === "object") {
+    const pg = driverError as Record<string, unknown>;
+    if (typeof pg.code === "string") safe.postgresCode = pg.code;
+    if (typeof pg.constraint === "string") safe.constraint = pg.constraint;
+    if (typeof pg.table === "string") safe.table = pg.table;
+    if (typeof pg.schema === "string") safe.schema = pg.schema;
+  }
+
+  return safe;
 }
 
 function httpStatusToCode(status: number): string {

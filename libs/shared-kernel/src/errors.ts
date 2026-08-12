@@ -52,3 +52,23 @@ export class ValidationError extends DomainError {
     super(message);
   }
 }
+
+/** Raised when a request has no (or no longer valid) credentials. Maps to HTTP 401. */
+export class UnauthorizedError extends ApplicationError {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Raised when credentials are valid but the actor lacks permission for the action. Maps to HTTP 403. */
+export class ForbiddenError extends ApplicationError {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}

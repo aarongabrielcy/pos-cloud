@@ -29,6 +29,7 @@ COPY libs/messaging/package.json ./libs/messaging/package.json
 COPY libs/control-plane/customer-management/package.json ./libs/control-plane/customer-management/package.json
 COPY libs/control-plane/licensing/package.json ./libs/control-plane/licensing/package.json
 COPY libs/control-plane/installations/package.json ./libs/control-plane/installations/package.json
+COPY libs/control-plane/access-management/package.json ./libs/control-plane/access-management/package.json
 RUN pnpm install --frozen-lockfile
 
 # ---------------------------------------------------------------------------

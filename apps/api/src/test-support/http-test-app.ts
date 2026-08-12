@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { Test, type TestingModuleBuilder } from "@nestjs/testing";
 import { correlationIdMiddleware } from "@pos-cloud/observability";
+import cookieParser from "cookie-parser";
 import { json, urlencoded } from "express";
 import type { PinoLogger } from "nestjs-pino";
 import { AllExceptionsFilter } from "../common/all-exceptions.filter";
@@ -35,6 +36,7 @@ export async function initHttpTestApp(
   app.use(correlationIdMiddleware);
   app.use(json());
   app.use(urlencoded({ extended: true }));
+  app.use(cookieParser());
 
   app.useGlobalPipes(
     new ValidationPipe({

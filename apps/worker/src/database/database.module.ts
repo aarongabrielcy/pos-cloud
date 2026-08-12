@@ -8,10 +8,7 @@ import { APP_CONFIG } from "../config/app-config.tokens";
   imports: [
     TypeOrmModule.forRootAsync({
       inject: [APP_CONFIG],
-      useFactory: (config: AppConfig) =>
-        buildDataSourceOptions(config.database, {
-          logging: config.env === "development",
-        }),
+      useFactory: (config: AppConfig) => buildDataSourceOptions(config.database),
     }),
   ],
   exports: [TypeOrmModule],

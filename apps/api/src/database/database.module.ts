@@ -9,9 +9,7 @@ import { APP_CONFIG } from "../config/app-config.tokens";
     TypeOrmModule.forRootAsync({
       inject: [APP_CONFIG],
       useFactory: (config: AppConfig) => ({
-        ...buildDataSourceOptions(config.database, {
-          logging: config.env === "development",
-        }),
+        ...buildDataSourceOptions(config.database),
         // Every bounded context registers its own persistence records via its own
         // TypeOrmModule.forFeature([...]) call inside its own module - this module never imports
         // any bounded context's Record classes directly (they are deliberately not part of any

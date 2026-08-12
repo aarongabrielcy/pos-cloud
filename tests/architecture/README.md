@@ -28,9 +28,10 @@ The scan roots are each package's `src/` directory (`apps/*/src`, `libs/*/src`,
 | `application-cannot-depend-on-infrastructure`                 | Any `.../application/...` module importing from a `.../infrastructure/...` module                                                                  |
 | `application-cannot-depend-on-presentation`                   | Any `.../application/...` module importing from a `.../presentation/...` module                                                                    |
 | `domain-is-framework-free`                                    | Any bounded context's `domain/` folder importing NestJS, TypeORM, ioredis, Express, Axios, pg, pino, helmet, class-validator, or class-transformer |
-| `customer-management-cannot-import-other-bounded-contexts`    | `@pos-cloud/customer-management` importing `@pos-cloud/licensing` or `@pos-cloud/installations`                                                    |
-| `licensing-cannot-import-other-bounded-contexts`              | `@pos-cloud/licensing` importing `@pos-cloud/customer-management` or `@pos-cloud/installations`                                                    |
-| `installations-cannot-import-other-bounded-contexts`          | `@pos-cloud/installations` importing `@pos-cloud/customer-management` or `@pos-cloud/licensing`                                                    |
+| `customer-management-cannot-import-other-bounded-contexts`    | `@pos-cloud/customer-management` importing `@pos-cloud/licensing`, `@pos-cloud/installations`, or `@pos-cloud/access-management`                   |
+| `licensing-cannot-import-other-bounded-contexts`              | `@pos-cloud/licensing` importing `@pos-cloud/customer-management`, `@pos-cloud/installations`, or `@pos-cloud/access-management`                   |
+| `installations-cannot-import-other-bounded-contexts`          | `@pos-cloud/installations` importing `@pos-cloud/customer-management`, `@pos-cloud/licensing`, or `@pos-cloud/access-management`                   |
+| `access-management-cannot-import-other-bounded-contexts`      | `@pos-cloud/access-management` importing `@pos-cloud/customer-management`, `@pos-cloud/licensing`, or `@pos-cloud/installations`                   |
 | `api-cannot-depend-on-worker` / `worker-cannot-depend-on-api` | The two deployable processes reaching into each other directly instead of sharing code through `libs/`                                             |
 
 Every rule above was verified to actually fail the build against a real, temporarily-introduced

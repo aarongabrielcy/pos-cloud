@@ -1,3 +1,7 @@
+import {
+  AdminSessionRecord,
+  AdminUserRecord,
+} from "@pos-cloud/access-management/dist/persistence-entities";
 import { CustomerRecord } from "@pos-cloud/customer-management/dist/persistence-entities";
 import { InstallationRecord } from "@pos-cloud/installations/dist/persistence-entities";
 import {
@@ -20,4 +24,6 @@ export const controlPlaneEntities = [
   LicenseRecord,
   LicenseEntitlementRecord,
   InstallationRecord,
+  AdminUserRecord,
+  AdminSessionRecord,
 ];

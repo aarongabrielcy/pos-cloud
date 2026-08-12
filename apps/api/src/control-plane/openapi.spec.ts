@@ -12,6 +12,10 @@ import { ControlPlaneModule } from "./control-plane.module";
  */
 describe("OpenAPI document regression", () => {
   it("includes every critical control-plane path and HTTP operation", async () => {
+    // ControlPlaneModule now also imports AuthConfigModule (CLOUD-01C-A), which calls
+    // loadAuthConfig() the moment it is imported - jest.setup-env.js guarantees AUTH_JWT_SECRET
+    // already exists in process.env by then (see that file's own comment for why it has to run
+    // before any spec file is required, not just before this test body).
     const moduleRef = await Test.createTestingModule({
       imports: [FakeDatabaseModule, ControlPlaneModule],
     }).compile();
@@ -27,6 +31,8 @@ describe("OpenAPI document regression", () => {
         .addTag("customers")
         .addTag("licenses")
         .addTag("installations")
+        .addTag("auth")
+        .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
         .build(),
     );
 
@@ -41,6 +47,10 @@ describe("OpenAPI document regression", () => {
       { path: "/api/v1/control-plane/installations", methods: ["post", "get"] },
       { path: "/api/v1/control-plane/installations/{id}", methods: ["get"] },
       { path: "/api/v1/control-plane/installations/{id}/status", methods: ["patch"] },
+      { path: "/api/v1/auth/login", methods: ["post"] },
+      { path: "/api/v1/auth/refresh", methods: ["post"] },
+      { path: "/api/v1/auth/logout", methods: ["post"] },
+      { path: "/api/v1/auth/me", methods: ["get"] },
     ];
 
     for (const { path, methods } of expectedOperations) {

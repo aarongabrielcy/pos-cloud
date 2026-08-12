@@ -5,6 +5,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { loadConfig } from "@pos-cloud/config";
 import { correlationIdMiddleware } from "@pos-cloud/observability";
+import cookieParser from "cookie-parser";
 import { json, urlencoded } from "express";
 import helmet from "helmet";
 import { Logger } from "nestjs-pino";
@@ -31,6 +32,12 @@ async function bootstrap(): Promise<void> {
   app.use(correlationIdMiddleware);
   app.use(json());
   app.use(urlencoded({ extended: true }));
+  // Populates req.cookies for AuthController (login/refresh/logout) - the refresh token travels
+  // only as an HttpOnly cookie, never in a request/response body (see docs/architecture/
+  // admin-authentication.md#cookie-policy). Not signed: the cookie's value is itself an opaque,
+  // unguessable, hashed-at-rest token - an HMAC signature would add no real protection against
+  // tampering that the hash-comparison in RefreshAdminSessionUseCase doesn't already catch.
+  app.use(cookieParser());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -42,21 +49,25 @@ async function bootstrap(): Promise<void> {
 
   // Swagger/OpenAPI is generated from live decorators (never a static openapi.json), and is
   // development-only by default - production deployments must explicitly opt back in via
-  // NODE_ENV, since this is an unauthenticated, unprotected admin surface for now (see
-  // docs/adr/ADR-011 and the README security notice: DO NOT DEPLOY PUBLICLY without auth).
+  // NODE_ENV, since the Customers/Licenses/Installations business routes remain unprotected for now
+  // (see docs/adr/ADR-011 and the README security notice: DO NOT DEPLOY PUBLICLY). CLOUD-01C-A only
+  // adds admin identity + login (GET /auth/me is the one Bearer-protected route so far) - blanket
+  // Control Plane protection is CLOUD-01C-B, not this task.
   if (config.env !== "production") {
     const document = SwaggerModule.createDocument(
       app,
       new DocumentBuilder()
         .setTitle("POSPlatform Cloud - Control Plane API")
         .setDescription(
-          "Vendor/Admin Control Plane: Customer Management, Licensing, Installations. " +
-            "No authentication yet - DO NOT DEPLOY PUBLICLY.",
+          "Vendor/Admin Control Plane: Customer Management, Licensing, Installations, Auth. " +
+            "Customers/Licenses/Installations remain unauthenticated - DO NOT DEPLOY PUBLICLY.",
         )
         .setVersion("1.0")
         .addTag("customers")
         .addTag("licenses")
         .addTag("installations")
+        .addTag("auth")
+        .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
         .build(),
     );
     SwaggerModule.setup("docs", app, document);
