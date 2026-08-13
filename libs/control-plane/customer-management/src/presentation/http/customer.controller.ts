@@ -9,8 +9,15 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from "@nestjs/swagger";
+import {
+  ApiErrorResponse,
   CurrentAdmin,
   type CurrentAdminPrincipal,
   PERMISSIONS,
@@ -43,6 +50,7 @@ function buildAdminAuditActor(
 
 @ApiTags("customers")
 @ApiBearerAuth("admin-bearer")
+@ApiErrorResponse()
 @Controller("api/v1/control-plane/customers")
 export class CustomerController {
   constructor(
@@ -54,6 +62,7 @@ export class CustomerController {
 
   @Post()
   @RequirePermissions(PERMISSIONS.CUSTOMERS.CREATE)
+  @ApiCreatedResponse({ type: CustomerResponseDto })
   @ApiOperation({ summary: "Create a customer" })
   async create(
     @Body() body: CreateCustomerRequestDto,
@@ -69,6 +78,7 @@ export class CustomerController {
 
   @Get(":id")
   @RequirePermissions(PERMISSIONS.CUSTOMERS.READ)
+  @ApiOkResponse({ type: CustomerResponseDto })
   @ApiOperation({ summary: "Get a customer by id" })
   async getById(@Param("id", ParseUUIDPipe) id: string): Promise<CustomerResponseDto> {
     const customer = await this.getCustomerByIdUseCase.execute(id);
@@ -80,6 +90,7 @@ export class CustomerController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.CUSTOMERS.READ)
+  @ApiOkResponse({ type: CustomerListResponseDto })
   @ApiOperation({ summary: "List customers" })
   async list(@Query() query: ListCustomersQueryDto): Promise<CustomerListResponseDto> {
     const result = await this.listCustomersUseCase.execute(query);
@@ -94,6 +105,7 @@ export class CustomerController {
 
   @Patch(":id/status")
   @RequirePermissions(PERMISSIONS.CUSTOMERS.STATUS_CHANGE)
+  @ApiOkResponse({ type: CustomerResponseDto })
   @ApiOperation({ summary: "Change a customer's status" })
   async changeStatus(
     @Param("id", ParseUUIDPipe) id: string,

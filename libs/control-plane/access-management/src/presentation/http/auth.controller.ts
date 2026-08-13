@@ -9,7 +9,13 @@ import {
   Req,
   Res,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from "@nestjs/swagger";
 import { AUTH_CONFIG, type AuthConfig } from "@pos-cloud/config";
 import type { Response } from "express";
 import { GetAdminProfileUseCase } from "../../application/use-cases/get-admin-profile.use-case";
@@ -17,6 +23,7 @@ import { LoginAdminUseCase } from "../../application/use-cases/login-admin.use-c
 import { LogoutAdminUseCase } from "../../application/use-cases/logout-admin.use-case";
 import { RefreshAdminSessionUseCase } from "../../application/use-cases/refresh-admin-session.use-case";
 import { InvalidRefreshTokenError } from "../../domain/admin-session.errors";
+import { ApiErrorResponse } from "./decorators/api-error-response.decorator";
 import { AuthenticatedOnly } from "./decorators/authenticated-only.decorator";
 import { CurrentAdmin } from "./decorators/current-admin.decorator";
 import { Public } from "./decorators/public.decorator";
@@ -30,6 +37,7 @@ import { RefreshResponseDto } from "./dto/refresh.response.dto";
 const AUTH_COOKIE_PATH = "/api/v1/auth";
 
 @ApiTags("auth")
+@ApiErrorResponse()
 @Controller("api/v1/auth")
 export class AuthController {
   constructor(
@@ -43,6 +51,7 @@ export class AuthController {
   @Post("login")
   @Public()
   @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: LoginResponseDto })
   @ApiOperation({
     summary: "Admin login",
     description:
@@ -66,6 +75,7 @@ export class AuthController {
   @Post("refresh")
   @Public()
   @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ type: RefreshResponseDto })
   @ApiOperation({
     summary: "Rotate the refresh session",
     description: "Reads the HttpOnly refresh cookie, rotates it, and returns a new access token.",
@@ -92,6 +102,7 @@ export class AuthController {
   @Post("logout")
   @Public()
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse({ description: "Logged out - cookie cleared. Idempotent." })
   @ApiOperation({
     summary: "Logout",
     description: "Revokes the current refresh session (if any) and clears the cookie. Idempotent.",
@@ -108,6 +119,7 @@ export class AuthController {
   @Get("me")
   @AuthenticatedOnly()
   @ApiBearerAuth("admin-bearer")
+  @ApiOkResponse({ type: AdminMeResponseDto })
   @ApiOperation({ summary: "Current authenticated admin's public profile" })
   async me(@CurrentAdmin() currentAdmin: CurrentAdminPrincipal): Promise<AdminMeResponseDto> {
     const profile = await this.getAdminProfileUseCase.execute({

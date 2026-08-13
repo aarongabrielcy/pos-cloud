@@ -10,8 +10,15 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from "@nestjs/swagger";
+import {
+  ApiErrorResponse,
   CurrentAdmin,
   type CurrentAdminPrincipal,
   PERMISSIONS,
@@ -46,6 +53,7 @@ function buildAdminAuditActor(
 
 @ApiTags("licenses")
 @ApiBearerAuth("admin-bearer")
+@ApiErrorResponse()
 @Controller("api/v1/control-plane/licenses")
 export class LicenseController {
   constructor(
@@ -58,6 +66,7 @@ export class LicenseController {
 
   @Post()
   @RequirePermissions(PERMISSIONS.LICENSES.CREATE)
+  @ApiCreatedResponse({ type: LicenseResponseDto })
   @ApiOperation({ summary: "Create a license" })
   async create(
     @Body() body: CreateLicenseRequestDto,
@@ -82,6 +91,7 @@ export class LicenseController {
 
   @Get(":id")
   @RequirePermissions(PERMISSIONS.LICENSES.READ)
+  @ApiOkResponse({ type: LicenseResponseDto })
   @ApiOperation({ summary: "Get a license by id, including its entitlements" })
   async getById(@Param("id", ParseUUIDPipe) id: string): Promise<LicenseResponseDto> {
     const license = await this.getLicenseByIdUseCase.execute(id);
@@ -93,6 +103,7 @@ export class LicenseController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.LICENSES.READ)
+  @ApiOkResponse({ type: LicenseListResponseDto })
   @ApiOperation({ summary: "List licenses (entitlements omitted per item)" })
   async list(@Query() query: ListLicensesQueryDto): Promise<LicenseListResponseDto> {
     const result = await this.listLicensesUseCase.execute(query);
@@ -109,6 +120,7 @@ export class LicenseController {
 
   @Patch(":id/status")
   @RequirePermissions(PERMISSIONS.LICENSES.STATUS_CHANGE)
+  @ApiOkResponse({ type: LicenseResponseDto })
   @ApiOperation({ summary: "Change a license's status" })
   async changeStatus(
     @Param("id", ParseUUIDPipe) id: string,
@@ -125,6 +137,7 @@ export class LicenseController {
 
   @Put(":id/entitlements")
   @RequirePermissions(PERMISSIONS.LICENSES.ENTITLEMENTS_MANAGE)
+  @ApiOkResponse({ type: LicenseResponseDto })
   @ApiOperation({ summary: "Replace the full entitlement collection for a license" })
   async replaceEntitlements(
     @Param("id", ParseUUIDPipe) id: string,

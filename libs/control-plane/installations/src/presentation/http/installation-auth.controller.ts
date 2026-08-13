@@ -1,5 +1,12 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from "@nestjs/swagger";
+import { ApiErrorResponse } from "@pos-cloud/access-management";
 import type { AuditRequestContext } from "@pos-cloud/shared-kernel";
 import type { Request } from "express";
 import { EnrollInstallationUseCase } from "../../application/use-cases/enroll-installation.use-case";
@@ -18,6 +25,7 @@ import { InstallationSessionResponseDto } from "./dto/installation-session.respo
  * Bearer credential. See docs/architecture/installation-enrollment.md#principles.
  */
 @ApiTags("installation-auth")
+@ApiErrorResponse()
 @Controller("api/v1/installation-auth")
 export class InstallationAuthController {
   constructor(private readonly enrollInstallationUseCase: EnrollInstallationUseCase) {}
@@ -25,6 +33,7 @@ export class InstallationAuthController {
   @Post("enroll")
   @InstallationEnrollment()
   @HttpCode(HttpStatus.CREATED)
+  @ApiCreatedResponse({ type: EnrollInstallationResponseDto })
   @ApiOperation({
     summary: "Consume a one-time enrollment code and obtain a permanent installation credential",
     description:
@@ -55,6 +64,7 @@ export class InstallationAuthController {
   @Get("session")
   @InstallationAuthenticated()
   @ApiBearerAuth("installation-bearer")
+  @ApiOkResponse({ type: InstallationSessionResponseDto })
   @ApiOperation({
     summary: "Minimal identity/session validation",
     description:

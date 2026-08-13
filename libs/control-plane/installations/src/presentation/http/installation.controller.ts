@@ -11,8 +11,16 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
 import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from "@nestjs/swagger";
+import {
+  ApiErrorResponse,
   CurrentAdmin,
   type CurrentAdminPrincipal,
   PERMISSIONS,
@@ -52,6 +60,7 @@ function buildAdminAuditActor(
 
 @ApiTags("installations")
 @ApiBearerAuth("admin-bearer")
+@ApiErrorResponse()
 @Controller("api/v1/control-plane/installations")
 export class InstallationController {
   constructor(
@@ -66,6 +75,7 @@ export class InstallationController {
 
   @Post()
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.CREATE)
+  @ApiCreatedResponse({ type: InstallationResponseDto })
   @ApiOperation({ summary: "Create an installation (starts PENDING)" })
   async create(
     @Body() body: CreateInstallationRequestDto,
@@ -81,6 +91,7 @@ export class InstallationController {
 
   @Get(":id")
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.READ)
+  @ApiOkResponse({ type: InstallationResponseDto })
   @ApiOperation({ summary: "Get an installation by id" })
   async getById(@Param("id", ParseUUIDPipe) id: string): Promise<InstallationResponseDto> {
     const installation = await this.getInstallationByIdUseCase.execute(id);
@@ -92,6 +103,7 @@ export class InstallationController {
 
   @Get(":id/health")
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.READ)
+  @ApiOkResponse({ type: InstallationHealthResponseDto })
   @ApiOperation({
     summary: "Get an installation's operational health",
     description:
@@ -109,6 +121,7 @@ export class InstallationController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.READ)
+  @ApiOkResponse({ type: InstallationListResponseDto })
   @ApiOperation({ summary: "List installations" })
   async list(@Query() query: ListInstallationsQueryDto): Promise<InstallationListResponseDto> {
     const result = await this.listInstallationsUseCase.execute(query);
@@ -123,6 +136,7 @@ export class InstallationController {
 
   @Patch(":id/status")
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.STATUS_CHANGE)
+  @ApiOkResponse({ type: InstallationResponseDto })
   @ApiOperation({
     summary: "Administrative status change",
     description:
@@ -144,6 +158,7 @@ export class InstallationController {
 
   @Post(":id/enrollment")
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.ENROLLMENT_MANAGE)
+  @ApiCreatedResponse({ type: IssueInstallationEnrollmentResponseDto })
   @ApiOperation({
     summary: "Issue (or regenerate) the initial enrollment code for a PENDING installation",
     description:
@@ -168,6 +183,7 @@ export class InstallationController {
 
   @Post(":id/credentials/recovery-enrollment")
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.CREDENTIALS_MANAGE)
+  @ApiCreatedResponse({ type: IssueInstallationEnrollmentResponseDto })
   @ApiOperation({
     summary: "Issue a manual credential recovery/rekey enrollment code (ACTIVE or SUSPENDED only)",
     description:
@@ -195,6 +211,9 @@ export class InstallationController {
   @Post(":id/credentials/revoke")
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.CREDENTIALS_MANAGE)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse({
+    description: "Credential revoked (or already had none - idempotent).",
+  })
   @ApiOperation({
     summary: "Revoke the installation's active credential",
     description:

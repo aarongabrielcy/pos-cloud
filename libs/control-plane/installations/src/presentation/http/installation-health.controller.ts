@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiNoContentResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiErrorResponse } from "@pos-cloud/access-management";
 import { RecordInstallationHeartbeatUseCase } from "../../application/use-cases/record-installation-heartbeat.use-case";
 import { CurrentInstallation } from "./decorators/current-installation.decorator";
 import type { CurrentInstallationPrincipal } from "./current-installation-principal";
@@ -14,6 +15,7 @@ import { RecordHeartbeatRequestDto } from "./dto/record-heartbeat.request.dto";
  * docs/architecture/installation-health.md#heartbeat-endpoint.
  */
 @ApiTags("installation-health")
+@ApiErrorResponse()
 @Controller("api/v1/installation-health")
 export class InstallationHealthController {
   constructor(
@@ -24,6 +26,7 @@ export class InstallationHealthController {
   @InstallationAuthenticated()
   @ApiBearerAuth("installation-bearer")
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse({ description: "Heartbeat recorded." })
   @ApiOperation({
     summary: "Report a heartbeat for the authenticated installation",
     description:

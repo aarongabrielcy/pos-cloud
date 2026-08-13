@@ -186,7 +186,13 @@ token) returns the same `401 INVALID_ACCESS_TOKEN`.
 
 The response contains only public fields - `id`, `email`, `displayName`, `status`, `createdAt`,
 `lastLoginAt` - never `passwordHash`, never any session data (`GetAdminProfileUseCase`,
-`AdminMeResponseDto`).
+`AdminMeResponseDto`). Since BACKEND-HARDENING-01, it also includes `permissions: string[]` - the
+caller's effective permission codes, sorted lexicographically, resolved fresh via the same
+`PermissionResolverPort` `AdminAuthorizationGuard` already queries - see
+[admin-rbac.md#suspended-semantics](./admin-rbac.md#suspended-semantics) and
+[ADR-016](../adr/ADR-016-openapi-response-contract-and-effective-permissions.md). UX-only capability
+data for the frontend (hide/disable, never a security boundary) - the backend remains the sole
+authority on every actual request.
 
 ## Bootstrap (first admin)
 
