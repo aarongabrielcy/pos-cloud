@@ -1,5 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { CLOCK, type Clock, ID_GENERATOR, type IdGenerator } from "@pos-cloud/shared-kernel";
+import {
+  AUDIT_RECORDER_PORT,
+  type AuditActorContext,
+  type AuditRecorderPort,
+  CLOCK,
+  type Clock,
+  ID_GENERATOR,
+  type IdGenerator,
+} from "@pos-cloud/shared-kernel";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import { Installation } from "../../domain/installation";
 import { InstallationCode } from "../../domain/installation-code";
 import {
@@ -35,9 +44,13 @@ export class CreateInstallationUseCase {
     @Inject(LICENSE_READER_PORT) private readonly licenseReader: LicenseReaderPort,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly idGenerator: IdGenerator,
+    @Inject(AUDIT_RECORDER_PORT) private readonly auditRecorder: AuditRecorderPort,
   ) {}
 
-  async execute(command: CreateInstallationCommand): Promise<Installation> {
+  async execute(
+    command: CreateInstallationCommand,
+    actor: AuditActorContext,
+  ): Promise<Installation> {
     // 1. Customer exists.
     const customer = await this.customerReader.findCustomerSummary(command.customerId);
     if (!customer) {
@@ -91,6 +104,14 @@ export class CreateInstallationUseCase {
     );
 
     await this.installations.save(installation);
+
+    await this.auditRecorder.record({
+      actor,
+      action: INSTALLATION_AUDIT_ACTIONS.CREATED,
+      resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+      resourceId: installation.id.toString(),
+      metadata: {},
+    });
 
     return installation;
   }

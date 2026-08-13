@@ -1,6 +1,23 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
-import { PERMISSIONS, RequirePermissions } from "@pos-cloud/access-management";
+import {
+  CurrentAdmin,
+  type CurrentAdminPrincipal,
+  PERMISSIONS,
+  RequirePermissions,
+} from "@pos-cloud/access-management";
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
+import type { Request } from "express";
 import { ChangeCustomerStatusUseCase } from "../../application/use-cases/change-customer-status.use-case";
 import { CreateCustomerUseCase } from "../../application/use-cases/create-customer.use-case";
 import { GetCustomerByIdUseCase } from "../../application/use-cases/get-customer-by-id.use-case";
@@ -11,6 +28,18 @@ import { CreateCustomerRequestDto } from "./dto/create-customer.request.dto";
 import { CustomerListResponseDto } from "./dto/customer-list.response.dto";
 import { CustomerResponseDto } from "./dto/customer.response.dto";
 import { ListCustomersQueryDto } from "./dto/list-customers.query.dto";
+
+/** Same inline pattern AllExceptionsFilter already uses for reading the correlation id off the request. */
+function buildAdminAuditActor(
+  admin: CurrentAdminPrincipal,
+  request: Request & { id?: string | number },
+): AuditActorContext {
+  return {
+    actorType: "ADMIN",
+    actorId: admin.adminUserId,
+    correlationId: request.id !== undefined ? String(request.id) : "unknown",
+  };
+}
 
 @ApiTags("customers")
 @ApiBearerAuth("admin-bearer")
@@ -26,8 +55,15 @@ export class CustomerController {
   @Post()
   @RequirePermissions(PERMISSIONS.CUSTOMERS.CREATE)
   @ApiOperation({ summary: "Create a customer" })
-  async create(@Body() body: CreateCustomerRequestDto): Promise<CustomerResponseDto> {
-    const customer = await this.createCustomerUseCase.execute(body);
+  async create(
+    @Body() body: CreateCustomerRequestDto,
+    @CurrentAdmin() admin: CurrentAdminPrincipal,
+    @Req() request: Request & { id?: string | number },
+  ): Promise<CustomerResponseDto> {
+    const customer = await this.createCustomerUseCase.execute(
+      body,
+      buildAdminAuditActor(admin, request),
+    );
     return CustomerResponseDto.fromDomain(customer);
   }
 
@@ -62,8 +98,13 @@ export class CustomerController {
   async changeStatus(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: ChangeCustomerStatusRequestDto,
+    @CurrentAdmin() admin: CurrentAdminPrincipal,
+    @Req() request: Request & { id?: string | number },
   ): Promise<CustomerResponseDto> {
-    const customer = await this.changeCustomerStatusUseCase.execute({ id, status: body.status });
+    const customer = await this.changeCustomerStatusUseCase.execute(
+      { id, status: body.status },
+      buildAdminAuditActor(admin, request),
+    );
     return CustomerResponseDto.fromDomain(customer);
   }
 }

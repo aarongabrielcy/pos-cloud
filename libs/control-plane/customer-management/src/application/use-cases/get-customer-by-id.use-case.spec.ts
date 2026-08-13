@@ -1,10 +1,17 @@
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FixedClock } from "../../test-support/fixed-clock";
 import { InMemoryCustomerRepository } from "../../test-support/in-memory-customer-repository";
 import { CreateCustomerUseCase } from "./create-customer.use-case";
 import { GetCustomerByIdUseCase } from "./get-customer-by-id.use-case";
 
 const clock = new FixedClock(new Date("2026-01-01T00:00:00.000Z"));
+const ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
 
 describe("GetCustomerByIdUseCase", () => {
   it("returns the customer when it exists", async () => {
@@ -13,7 +20,8 @@ describe("GetCustomerByIdUseCase", () => {
       repository,
       clock,
       new RandomUuidGenerator(),
-    ).execute({ code: "GST-MX", legalName: "GS Trackme S.A." });
+      new FakeAuditRecorder(),
+    ).execute({ code: "GST-MX", legalName: "GS Trackme S.A." }, ACTOR);
 
     const found = await new GetCustomerByIdUseCase(repository).execute(created.id.toString());
 

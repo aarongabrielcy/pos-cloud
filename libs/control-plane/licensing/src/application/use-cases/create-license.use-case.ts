@@ -1,5 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { CLOCK, type Clock, ID_GENERATOR, type IdGenerator } from "@pos-cloud/shared-kernel";
+import {
+  AUDIT_RECORDER_PORT,
+  type AuditActorContext,
+  type AuditRecorderPort,
+  CLOCK,
+  type Clock,
+  ID_GENERATOR,
+  type IdGenerator,
+} from "@pos-cloud/shared-kernel";
+import { LICENSE_AUDIT_ACTIONS, LICENSE_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import { License, type ReplaceEntitlementItemInput } from "../../domain/license";
 import type { LicenseEdition } from "../../domain/license-edition";
 import type { LicenseModel } from "../../domain/license-model";
@@ -30,9 +39,10 @@ export class CreateLicenseUseCase {
     @Inject(CUSTOMER_READER_PORT) private readonly customerReader: CustomerReaderPort,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly idGenerator: IdGenerator,
+    @Inject(AUDIT_RECORDER_PORT) private readonly auditRecorder: AuditRecorderPort,
   ) {}
 
-  async execute(command: CreateLicenseCommand): Promise<License> {
+  async execute(command: CreateLicenseCommand, actor: AuditActorContext): Promise<License> {
     const customer = await this.customerReader.findCustomerSummary(command.customerId);
     if (!customer) {
       throw new LicenseCustomerNotFoundError(command.customerId);
@@ -68,6 +78,14 @@ export class CreateLicenseUseCase {
     );
 
     await this.licenses.save(license);
+
+    await this.auditRecorder.record({
+      actor,
+      action: LICENSE_AUDIT_ACTIONS.CREATED,
+      resourceType: LICENSE_AUDIT_RESOURCE_TYPE,
+      resourceId: license.id.toString(),
+      metadata: {},
+    });
 
     return license;
   }

@@ -22,6 +22,11 @@ export type {
 } from "./application/use-cases/enroll-installation.use-case";
 export { RevokeInstallationCredentialUseCase } from "./application/use-cases/revoke-installation-credential.use-case";
 export type { RevokeInstallationCredentialCommand } from "./application/use-cases/revoke-installation-credential.use-case";
+export { RecordInstallationHeartbeatUseCase } from "./application/use-cases/record-installation-heartbeat.use-case";
+export type { RecordInstallationHeartbeatCommand } from "./application/use-cases/record-installation-heartbeat.use-case";
+export { GetInstallationHealthUseCase } from "./application/use-cases/get-installation-health.use-case";
+export type { InstallationHealthDetail } from "./application/use-cases/get-installation-health.use-case";
+export type { InstallationListItemWithHealth } from "./application/use-cases/list-installations.use-case";
 
 export {
   CUSTOMER_READER_PORT,
@@ -36,6 +41,7 @@ export {
 
 export type { Installation } from "./domain/installation";
 export { InstallationStatus } from "./domain/installation-status";
+export { InstallationHealthStatus } from "./domain/installation-health-status";
 export { Platform } from "./domain/platform";
 export { InstallationEnrollmentPurpose } from "./domain/installation-enrollment-purpose";
 export * from "./domain/installation.errors";
@@ -51,6 +57,17 @@ export {
   type InstallationCredentialVerifierPort,
   type InstallationCredentialVerificationResult,
 } from "./application/ports/installation-credential-verifier.port";
+// Same reasoning as INSTALLATION_CREDENTIAL_VERIFIER above - lets apps/api HTTP tests override the
+// health read/write ports with fakes instead of constructing the real TypeORM adapter.
+export {
+  INSTALLATION_HEALTH_WRITER,
+  type InstallationHealthWriterPort,
+} from "./application/ports/installation-health-writer.port";
+export {
+  INSTALLATION_HEALTH_READER,
+  type InstallationHealthReaderPort,
+  type InstallationHealthSnapshot,
+} from "./application/ports/installation-health-reader.port";
 export { InstallationEnrollment } from "./presentation/http/decorators/installation-enrollment.decorator";
 export { InstallationAuthenticated } from "./presentation/http/decorators/installation-authenticated.decorator";
 export { CurrentInstallation } from "./presentation/http/decorators/current-installation.decorator";

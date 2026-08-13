@@ -9,3 +9,4 @@
 export { InstallationRecord } from "./infrastructure/persistence/installation.record";
 export { InstallationEnrollmentRecord } from "./infrastructure/persistence/installation-enrollment.record";
 export { InstallationCredentialRecord } from "./infrastructure/persistence/installation-credential.record";
+export { InstallationHealthRecord } from "./infrastructure/persistence/installation-health.record";

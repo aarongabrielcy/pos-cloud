@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import type { InstallationAuthConfig } from "@pos-cloud/config";
+import type { AuditActorContext, AuditRequestContext } from "@pos-cloud/shared-kernel";
 import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
 import { Installation } from "../../domain/installation";
 import { InstallationCode } from "../../domain/installation-code";
@@ -9,6 +11,8 @@ import { InstallationId } from "../../domain/installation-id";
 import { InstallationStatus } from "../../domain/installation-status";
 import { EnrollmentFailedError } from "../../domain/installation.errors";
 import { Platform } from "../../domain/platform";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FakeInstallationSecretGenerator } from "../../test-support/fake-installation-secret-generator";
 import { FakeCustomerReader, FakeLicenseReader } from "../../test-support/fake-readers";
 import { FixedClock } from "../../test-support/fixed-clock";
@@ -17,9 +21,14 @@ import { InMemoryInstallationEnrollmentRepository } from "../../test-support/in-
 import { EnrollInstallationUseCase } from "./enroll-installation.use-case";
 import { IssueInstallationEnrollmentUseCase } from "./issue-installation-enrollment.use-case";
 import { InMemoryInstallationEnrollmentIssuanceUnitOfWork } from "../../test-support/in-memory-installation-enrollment-issuance-unit-of-work";
-import type { InstallationAuthConfig } from "@pos-cloud/config";
 
 const BASE_TIME = new Date("2026-01-01T00:00:00.000Z");
+const ADMIN_ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
+const REQUEST_CONTEXT: AuditRequestContext = { correlationId: "correlation-2" };
 
 function buildInstallation(
   status: InstallationStatus,
@@ -60,6 +69,8 @@ function setup() {
   const clock = new FixedClock(BASE_TIME);
   const idGenerator = new RandomUuidGenerator();
   const installationAuthConfig: InstallationAuthConfig = { enrollmentCodeTtlSeconds: 900 };
+  const issueAuditRecorder = new FakeAuditRecorder();
+  const enrollAuditRecorder = new FakeAuditRecorder();
 
   const issueUseCase = new IssueInstallationEnrollmentUseCase(
     issuanceUnitOfWork,
@@ -67,6 +78,7 @@ function setup() {
     clock,
     idGenerator,
     installationAuthConfig,
+    issueAuditRecorder,
   );
   const enrollUseCase = new EnrollInstallationUseCase(
     enrollmentRepository,
@@ -76,6 +88,7 @@ function setup() {
     licenseReader,
     clock,
     idGenerator,
+    enrollAuditRecorder,
   );
 
   /** Builds a second EnrollInstallationUseCase sharing every dependency except the clock - used to simulate time passing between issuance and consumption without reaching into private entity state. */
@@ -88,6 +101,7 @@ function setup() {
       licenseReader,
       new FixedClock(at),
       idGenerator,
+      enrollAuditRecorder,
     );
   }
 
@@ -101,6 +115,8 @@ function setup() {
     customerReader,
     licenseReader,
     clock,
+    issueAuditRecorder,
+    enrollAuditRecorder,
   };
 }
 
@@ -117,10 +133,10 @@ async function seedEligibleInstallation(
   const installation = buildInstallation(status, { customerId, licenseId });
   ctx.installations.set(installation.id.toString(), installation);
 
-  const { enrollmentCode } = await ctx.issueUseCase.execute({
-    installationId: installation.id.toString(),
-    purpose,
-  });
+  const { enrollmentCode } = await ctx.issueUseCase.execute(
+    { installationId: installation.id.toString(), purpose },
+    ADMIN_ACTOR,
+  );
 
   return { installation, enrollmentCode, customerId, licenseId };
 }
@@ -129,16 +145,16 @@ describe("EnrollInstallationUseCase", () => {
   it("fails on a malformed enrollment code (no separator)", async () => {
     const ctx = setup();
 
-    await expect(ctx.enrollUseCase.execute({ enrollmentCode: "not-a-valid-code" })).rejects.toThrow(
-      EnrollmentFailedError,
-    );
+    await expect(
+      ctx.enrollUseCase.execute({ enrollmentCode: "not-a-valid-code" }, REQUEST_CONTEXT),
+    ).rejects.toThrow(EnrollmentFailedError);
   });
 
   it("fails on an unknown enrollment id", async () => {
     const ctx = setup();
 
     await expect(
-      ctx.enrollUseCase.execute({ enrollmentCode: `${randomUUID()}.some-secret` }),
+      ctx.enrollUseCase.execute({ enrollmentCode: `${randomUUID()}.some-secret` }, REQUEST_CONTEXT),
     ).rejects.toThrow(EnrollmentFailedError);
   });
 
@@ -152,7 +168,10 @@ describe("EnrollInstallationUseCase", () => {
     const [enrollmentId] = [...ctx.enrollments.keys()];
 
     await expect(
-      ctx.enrollUseCase.execute({ enrollmentCode: `${enrollmentId}.wrong-secret` }),
+      ctx.enrollUseCase.execute(
+        { enrollmentCode: `${enrollmentId}.wrong-secret` },
+        REQUEST_CONTEXT,
+      ),
     ).rejects.toThrow(EnrollmentFailedError);
     expect(installation.status).toBe(InstallationStatus.PENDING);
   });
@@ -167,7 +186,9 @@ describe("EnrollInstallationUseCase", () => {
     // Enrollment was issued with the default 900s TTL against BASE_TIME - consume 900s + 1ms later.
     const afterExpiry = ctx.buildEnrollUseCaseAt(new Date(BASE_TIME.getTime() + 900_001));
 
-    await expect(afterExpiry.execute({ enrollmentCode })).rejects.toThrow(EnrollmentFailedError);
+    await expect(afterExpiry.execute({ enrollmentCode }, REQUEST_CONTEXT)).rejects.toThrow(
+      EnrollmentFailedError,
+    );
   });
 
   it("fails on replay - a second consume attempt with an already-consumed code is rejected", async () => {
@@ -178,8 +199,10 @@ describe("EnrollInstallationUseCase", () => {
       InstallationEnrollmentPurpose.INITIAL,
     );
 
-    await expect(ctx.enrollUseCase.execute({ enrollmentCode })).resolves.toBeDefined();
-    await expect(ctx.enrollUseCase.execute({ enrollmentCode })).rejects.toThrow(
+    await expect(
+      ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT),
+    ).resolves.toBeDefined();
+    await expect(ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT)).rejects.toThrow(
       EnrollmentFailedError,
     );
   });
@@ -194,7 +217,7 @@ describe("EnrollInstallationUseCase", () => {
     const [enrollment] = [...ctx.enrollments.values()];
     enrollment.revoke(ctx.clock);
 
-    await expect(ctx.enrollUseCase.execute({ enrollmentCode })).rejects.toThrow(
+    await expect(ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT)).rejects.toThrow(
       EnrollmentFailedError,
     );
   });
@@ -208,7 +231,7 @@ describe("EnrollInstallationUseCase", () => {
     );
     ctx.customerReader.register({ id: customerId, active: false });
 
-    await expect(ctx.enrollUseCase.execute({ enrollmentCode })).rejects.toThrow(
+    await expect(ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT)).rejects.toThrow(
       EnrollmentFailedError,
     );
   });
@@ -222,9 +245,24 @@ describe("EnrollInstallationUseCase", () => {
     );
     ctx.licenseReader.register({ id: licenseId, customerId, maxInstallations: 5, usable: false });
 
-    await expect(ctx.enrollUseCase.execute({ enrollmentCode })).rejects.toThrow(
+    await expect(ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT)).rejects.toThrow(
       EnrollmentFailedError,
     );
+  });
+
+  it("does not record an audit event for any rejection path", async () => {
+    const ctx = setup();
+    await seedEligibleInstallation(
+      ctx,
+      InstallationStatus.PENDING,
+      InstallationEnrollmentPurpose.INITIAL,
+    );
+    ctx.enrollAuditRecorder.recorded.length = 0;
+
+    await expect(
+      ctx.enrollUseCase.execute({ enrollmentCode: `${randomUUID()}.wrong` }, REQUEST_CONTEXT),
+    ).rejects.toThrow(EnrollmentFailedError);
+    expect(ctx.enrollAuditRecorder.recorded).toHaveLength(0);
   });
 
   it("INITIAL + PENDING succeeds: activates the Installation and issues a credential", async () => {
@@ -235,7 +273,7 @@ describe("EnrollInstallationUseCase", () => {
       InstallationEnrollmentPurpose.INITIAL,
     );
 
-    const result = await ctx.enrollUseCase.execute({ enrollmentCode });
+    const result = await ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT);
 
     expect(result.installationId).toBe(installation.id.toString());
     expect(result.credential).toContain(".");
@@ -243,6 +281,35 @@ describe("EnrollInstallationUseCase", () => {
     expect(stored?.status).toBe(InstallationStatus.ACTIVE);
     expect(stored?.registeredAt).not.toBeNull();
     expect(ctx.credentials.size).toBe(1);
+  });
+
+  it("records an audit event with actorType INSTALLATION and the resolved installation.id (never a caller-supplied id)", async () => {
+    const ctx = setup();
+    const { installation, enrollmentCode } = await seedEligibleInstallation(
+      ctx,
+      InstallationStatus.PENDING,
+      InstallationEnrollmentPurpose.INITIAL,
+    );
+    ctx.enrollAuditRecorder.recorded.length = 0;
+
+    await ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT);
+
+    expect(ctx.enrollAuditRecorder.recorded).toEqual([
+      {
+        actor: {
+          actorType: "INSTALLATION",
+          actorId: installation.id.toString(),
+          correlationId: REQUEST_CONTEXT.correlationId,
+        },
+        action: INSTALLATION_AUDIT_ACTIONS.ENROLLMENT_CONSUMED,
+        resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+        resourceId: installation.id.toString(),
+        metadata: {
+          purpose: InstallationEnrollmentPurpose.INITIAL,
+          resultingStatus: InstallationStatus.ACTIVE,
+        },
+      },
+    ]);
   });
 
   it("RECOVERY + ACTIVE succeeds: stays ACTIVE, issues a new credential, revokes the prior one", async () => {
@@ -260,7 +327,7 @@ describe("EnrollInstallationUseCase", () => {
     );
     ctx.credentials.set(priorCredential.id.toString(), priorCredential);
 
-    const result = await ctx.enrollUseCase.execute({ enrollmentCode });
+    const result = await ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT);
 
     expect(result.installationId).toBe(installation.id.toString());
     const stored = ctx.installations.get(installation.id.toString());
@@ -279,7 +346,7 @@ describe("EnrollInstallationUseCase", () => {
       InstallationEnrollmentPurpose.RECOVERY,
     );
 
-    await ctx.enrollUseCase.execute({ enrollmentCode });
+    await ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT);
 
     const stored = ctx.installations.get(installation.id.toString());
     expect(stored?.status).toBe(InstallationStatus.SUSPENDED);
@@ -297,7 +364,7 @@ describe("EnrollInstallationUseCase", () => {
     installation.changeStatus(InstallationStatus.DECOMMISSIONED, ctx.clock);
     ctx.installations.set(installation.id.toString(), installation);
 
-    await expect(ctx.enrollUseCase.execute({ enrollmentCode })).rejects.toThrow(
+    await expect(ctx.enrollUseCase.execute({ enrollmentCode }, REQUEST_CONTEXT)).rejects.toThrow(
       EnrollmentFailedError,
     );
   });

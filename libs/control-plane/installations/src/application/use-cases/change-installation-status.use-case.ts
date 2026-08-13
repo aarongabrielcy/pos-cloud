@@ -1,5 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { CLOCK, type Clock } from "@pos-cloud/shared-kernel";
+import {
+  AUDIT_RECORDER_PORT,
+  type AuditActorContext,
+  type AuditRecorderPort,
+  CLOCK,
+  type Clock,
+} from "@pos-cloud/shared-kernel";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import type { Installation } from "../../domain/installation";
 import { InstallationId } from "../../domain/installation-id";
 import {
@@ -24,16 +31,29 @@ export class ChangeInstallationStatusUseCase {
   constructor(
     @Inject(INSTALLATION_REPOSITORY) private readonly installations: InstallationRepository,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(AUDIT_RECORDER_PORT) private readonly auditRecorder: AuditRecorderPort,
   ) {}
 
-  async execute(command: ChangeInstallationStatusCommand): Promise<Installation> {
+  async execute(
+    command: ChangeInstallationStatusCommand,
+    actor: AuditActorContext,
+  ): Promise<Installation> {
     const installation = await this.installations.findById(InstallationId.of(command.id));
     if (!installation) {
       throw new InstallationNotFoundError(command.id);
     }
 
+    const from = installation.status;
     installation.changeStatus(command.status, this.clock);
     await this.installations.save(installation);
+
+    await this.auditRecorder.record({
+      actor,
+      action: INSTALLATION_AUDIT_ACTIONS.STATUS_CHANGED,
+      resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+      resourceId: installation.id.toString(),
+      metadata: { from, to: installation.status },
+    });
 
     return installation;
   }

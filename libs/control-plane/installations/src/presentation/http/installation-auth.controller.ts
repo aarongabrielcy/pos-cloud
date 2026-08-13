@@ -1,5 +1,7 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
+import type { AuditRequestContext } from "@pos-cloud/shared-kernel";
+import type { Request } from "express";
 import { EnrollInstallationUseCase } from "../../application/use-cases/enroll-installation.use-case";
 import { InstallationAuthenticated } from "./decorators/installation-authenticated.decorator";
 import { InstallationEnrollment } from "./decorators/installation-enrollment.decorator";
@@ -30,10 +32,20 @@ export class InstallationAuthController {
       "authentication mechanism. The returned credential is shown once and is never persisted in " +
       "plaintext - store it securely on the device.",
   })
-  async enroll(@Body() body: EnrollInstallationRequestDto): Promise<EnrollInstallationResponseDto> {
-    const result = await this.enrollInstallationUseCase.execute({
-      enrollmentCode: body.enrollmentCode,
-    });
+  async enroll(
+    @Body() body: EnrollInstallationRequestDto,
+    @Req() request: Request & { id?: string | number },
+  ): Promise<EnrollInstallationResponseDto> {
+    // No @CurrentInstallation() here - the Installation is still authenticating via the enrollment
+    // code, so only correlationId is known up front. See EnrollInstallationUseCase's own comment for
+    // how it resolves and audits the real actor internally.
+    const requestContext: AuditRequestContext = {
+      correlationId: request.id !== undefined ? String(request.id) : "unknown",
+    };
+    const result = await this.enrollInstallationUseCase.execute(
+      { enrollmentCode: body.enrollmentCode },
+      requestContext,
+    );
     const dto = new EnrollInstallationResponseDto();
     dto.installationId = result.installationId;
     dto.credential = result.credential;

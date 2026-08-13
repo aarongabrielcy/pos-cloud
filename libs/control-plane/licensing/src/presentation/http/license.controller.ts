@@ -8,9 +8,17 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
-import { PERMISSIONS, RequirePermissions } from "@pos-cloud/access-management";
+import {
+  CurrentAdmin,
+  type CurrentAdminPrincipal,
+  PERMISSIONS,
+  RequirePermissions,
+} from "@pos-cloud/access-management";
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
+import type { Request } from "express";
 import { ChangeLicenseStatusUseCase } from "../../application/use-cases/change-license-status.use-case";
 import { CreateLicenseUseCase } from "../../application/use-cases/create-license.use-case";
 import { GetLicenseByIdUseCase } from "../../application/use-cases/get-license-by-id.use-case";
@@ -23,6 +31,18 @@ import { LicenseListResponseDto } from "./dto/license-list.response.dto";
 import { LicenseResponseDto } from "./dto/license.response.dto";
 import { ListLicensesQueryDto } from "./dto/list-licenses.query.dto";
 import { ReplaceLicenseEntitlementsRequestDto } from "./dto/replace-license-entitlements.request.dto";
+
+/** Same inline pattern AllExceptionsFilter already uses for reading the correlation id off the request. */
+function buildAdminAuditActor(
+  admin: CurrentAdminPrincipal,
+  request: Request & { id?: string | number },
+): AuditActorContext {
+  return {
+    actorType: "ADMIN",
+    actorId: admin.adminUserId,
+    correlationId: request.id !== undefined ? String(request.id) : "unknown",
+  };
+}
 
 @ApiTags("licenses")
 @ApiBearerAuth("admin-bearer")
@@ -39,17 +59,24 @@ export class LicenseController {
   @Post()
   @RequirePermissions(PERMISSIONS.LICENSES.CREATE)
   @ApiOperation({ summary: "Create a license" })
-  async create(@Body() body: CreateLicenseRequestDto): Promise<LicenseResponseDto> {
-    const license = await this.createLicenseUseCase.execute({
-      customerId: body.customerId,
-      licenseNumber: body.licenseNumber,
-      edition: body.edition,
-      licenseModel: body.licenseModel,
-      validFrom: new Date(body.validFrom),
-      validUntil: body.validUntil ? new Date(body.validUntil) : null,
-      maxInstallations: body.maxInstallations,
-      entitlements: body.entitlements,
-    });
+  async create(
+    @Body() body: CreateLicenseRequestDto,
+    @CurrentAdmin() admin: CurrentAdminPrincipal,
+    @Req() request: Request & { id?: string | number },
+  ): Promise<LicenseResponseDto> {
+    const license = await this.createLicenseUseCase.execute(
+      {
+        customerId: body.customerId,
+        licenseNumber: body.licenseNumber,
+        edition: body.edition,
+        licenseModel: body.licenseModel,
+        validFrom: new Date(body.validFrom),
+        validUntil: body.validUntil ? new Date(body.validUntil) : null,
+        maxInstallations: body.maxInstallations,
+        entitlements: body.entitlements,
+      },
+      buildAdminAuditActor(admin, request),
+    );
     return LicenseResponseDto.fromDomain(license, { includeEntitlements: true });
   }
 
@@ -86,8 +113,13 @@ export class LicenseController {
   async changeStatus(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: ChangeLicenseStatusRequestDto,
+    @CurrentAdmin() admin: CurrentAdminPrincipal,
+    @Req() request: Request & { id?: string | number },
   ): Promise<LicenseResponseDto> {
-    const license = await this.changeLicenseStatusUseCase.execute({ id, status: body.status });
+    const license = await this.changeLicenseStatusUseCase.execute(
+      { id, status: body.status },
+      buildAdminAuditActor(admin, request),
+    );
     return LicenseResponseDto.fromDomain(license, { includeEntitlements: true });
   }
 
@@ -97,11 +129,13 @@ export class LicenseController {
   async replaceEntitlements(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: ReplaceLicenseEntitlementsRequestDto,
+    @CurrentAdmin() admin: CurrentAdminPrincipal,
+    @Req() request: Request & { id?: string | number },
   ): Promise<LicenseResponseDto> {
-    const license = await this.replaceLicenseEntitlementsUseCase.execute({
-      licenseId: id,
-      entitlements: body.entitlements,
-    });
+    const license = await this.replaceLicenseEntitlementsUseCase.execute(
+      { licenseId: id, entitlements: body.entitlements },
+      buildAdminAuditActor(admin, request),
+    );
     return LicenseResponseDto.fromDomain(license, { includeEntitlements: true });
   }
 }

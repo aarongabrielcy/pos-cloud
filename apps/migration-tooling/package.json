@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@pos-cloud/access-management": "workspace:*",
+    "@pos-cloud/audit": "workspace:*",
     "@pos-cloud/config": "workspace:*",
     "@pos-cloud/customer-management": "workspace:*",
     "@pos-cloud/database": "workspace:*",

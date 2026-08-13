@@ -18,7 +18,8 @@ describe("admin-role catalog", () => {
     expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).not.toContain("licenses.entitlements.manage");
     expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).not.toContain("installations.credentials.manage");
     expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).toContain("installations.enrollment.manage");
-    expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).toHaveLength(10);
+    expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).toContain("audit.read");
+    expect(ROLE_PERMISSIONS.PLATFORM_OPERATOR).toHaveLength(11);
   });
 
   it("gives PLATFORM_ADMIN every known permission - no hardcoded role-name bypass exists to check instead", () => {

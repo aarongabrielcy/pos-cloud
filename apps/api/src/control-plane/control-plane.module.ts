@@ -5,11 +5,13 @@ import {
   AccessTokenGuard,
   AdminAuthorizationGuard,
 } from "@pos-cloud/access-management";
+import { AuditModule } from "@pos-cloud/audit";
 import { CustomerManagementModule } from "@pos-cloud/customer-management";
 import { InstallationAuthGuard, InstallationsModule } from "@pos-cloud/installations";
 import { LicensingModule } from "@pos-cloud/licensing";
 import { AuthConfigModule } from "../auth/auth-config.module";
 import { InstallationAuthConfigModule } from "../auth/installation-auth-config.module";
+import { InstallationHealthConfigModule } from "../auth/installation-health-config.module";
 import { CrossContextPortsModule } from "./cross-context-ports.module";
 
 /**
@@ -49,6 +51,8 @@ import { CrossContextPortsModule } from "./cross-context-ports.module";
   imports: [
     AuthConfigModule,
     InstallationAuthConfigModule,
+    InstallationHealthConfigModule,
+    AuditModule,
     CrossContextPortsModule,
     CustomerManagementModule,
     LicensingModule,

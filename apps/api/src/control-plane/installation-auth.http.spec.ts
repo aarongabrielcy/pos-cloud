@@ -15,12 +15,14 @@ import {
   EnrollInstallationUseCase,
   EnrollmentFailedError,
   GetInstallationByIdUseCase,
+  GetInstallationHealthUseCase,
   INSTALLATION_CREDENTIAL_VERIFIER,
   InstallationAuthGuard,
   InstallationsModule,
   InstallationStatus,
   IssueInstallationEnrollmentUseCase,
   ListInstallationsUseCase,
+  RecordInstallationHeartbeatUseCase,
   RevokeInstallationCredentialUseCase,
   type InstallationCredentialVerifierPort,
 } from "@pos-cloud/installations";
@@ -78,10 +80,12 @@ async function signRealAdminAccessToken(adminUserId: string, sessionId: string):
 describe("Installation Auth HTTP contract", () => {
   let app: INestApplication;
   let enrollInstallationUseCase: { execute: jest.Mock };
+  let recordInstallationHeartbeatUseCase: { execute: jest.Mock };
   let verify: jest.Mock;
 
   beforeEach(async () => {
     enrollInstallationUseCase = { execute: jest.fn() };
+    recordInstallationHeartbeatUseCase = { execute: jest.fn().mockResolvedValue(undefined) };
     verify = jest.fn().mockResolvedValue(null);
 
     const verifier: InstallationCredentialVerifierPort = { verify };
@@ -106,6 +110,10 @@ describe("Installation Auth HTTP contract", () => {
       .useValue({ execute: jest.fn() })
       .overrideProvider(RevokeInstallationCredentialUseCase)
       .useValue({ execute: jest.fn() })
+      .overrideProvider(GetInstallationHealthUseCase)
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(RecordInstallationHeartbeatUseCase)
+      .useValue(recordInstallationHeartbeatUseCase)
       .overrideProvider(INSTALLATION_CREDENTIAL_VERIFIER)
       .useValue(verifier);
 
@@ -132,9 +140,10 @@ describe("Installation Auth HTTP contract", () => {
         installationId: "installation-1",
         credential: "credential-1.credential-secret",
       });
-      expect(enrollInstallationUseCase.execute).toHaveBeenCalledWith({
-        enrollmentCode: "enrollment-1.enrollment-secret",
-      });
+      expect(enrollInstallationUseCase.execute).toHaveBeenCalledWith(
+        { enrollmentCode: "enrollment-1.enrollment-secret" },
+        { correlationId: expect.any(String) },
+      );
     });
 
     it("returns 401 ENROLLMENT_FAILED for any failure cause, never a distinguishing detail", async () => {
@@ -247,6 +256,119 @@ describe("Installation Auth HTTP contract", () => {
     });
   });
 
+  describe("POST /api/v1/installation-health/heartbeat", () => {
+    it("returns 401 INSTALLATION_CREDENTIAL_INVALID with no Authorization header", async () => {
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .send({ appVersion: "1.4.2" });
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe("INSTALLATION_CREDENTIAL_INVALID");
+    });
+
+    it("returns 401 INSTALLATION_CREDENTIAL_INVALID for a revoked/unknown credential", async () => {
+      verify.mockResolvedValue(null);
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .set("Authorization", "Bearer credential-1.wrong-secret")
+        .send({ appVersion: "1.4.2" });
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe("INSTALLATION_CREDENTIAL_INVALID");
+    });
+
+    it("returns 403 INSTALLATION_SUSPENDED for a valid credential on a SUSPENDED installation", async () => {
+      verify.mockResolvedValue({
+        installationId: "installation-1",
+        installationStatus: InstallationStatus.SUSPENDED,
+      });
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .set("Authorization", "Bearer credential-1.correct-secret")
+        .send({ appVersion: "1.4.2" });
+
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe("INSTALLATION_SUSPENDED");
+    });
+
+    it("returns 403 INSTALLATION_DECOMMISSIONED for a valid credential on a DECOMMISSIONED installation", async () => {
+      verify.mockResolvedValue({
+        installationId: "installation-1",
+        installationStatus: InstallationStatus.DECOMMISSIONED,
+      });
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .set("Authorization", "Bearer credential-1.correct-secret")
+        .send({ appVersion: "1.4.2" });
+
+      expect(response.status).toBe(403);
+      expect(response.body.code).toBe("INSTALLATION_DECOMMISSIONED");
+    });
+
+    it("an admin Bearer token is rejected (401 INSTALLATION_CREDENTIAL_INVALID) - identity cannot cross planes", async () => {
+      const adminToken = await signRealAdminAccessToken("admin-1", "session-1");
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ appVersion: "1.4.2" });
+
+      expect(response.status).toBe(401);
+      expect(response.body.code).toBe("INSTALLATION_CREDENTIAL_INVALID");
+    });
+
+    it("returns 400 when appVersion is missing", async () => {
+      verify.mockResolvedValue({
+        installationId: "installation-1",
+        installationStatus: InstallationStatus.ACTIVE,
+      });
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .set("Authorization", "Bearer credential-1.correct-secret")
+        .send({});
+
+      expect(response.status).toBe(400);
+    });
+
+    it("returns 204 No Content for a valid credential on an ACTIVE installation, identity taken from the principal - a body-supplied installationId is ignored/rejected by the DTO", async () => {
+      verify.mockResolvedValue({
+        installationId: "installation-1",
+        installationStatus: InstallationStatus.ACTIVE,
+      });
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .set("Authorization", "Bearer credential-1.correct-secret")
+        .send({ appVersion: "1.4.2" });
+
+      expect(response.status).toBe(204);
+      expect(response.body).toEqual({});
+      expect(recordInstallationHeartbeatUseCase.execute).toHaveBeenCalledWith({
+        installationId: "installation-1",
+        appVersion: "1.4.2",
+        clientReportedAt: null,
+      });
+    });
+
+    it("returns 400 (forbidNonWhitelisted) when the body includes an installationId field - the DTO has no such property, so a spoofing attempt is rejected outright", async () => {
+      verify.mockResolvedValue({
+        installationId: "installation-1",
+        installationStatus: InstallationStatus.ACTIVE,
+      });
+
+      const response = await request(app.getHttpServer())
+        .post("/api/v1/installation-health/heartbeat")
+        .set("Authorization", "Bearer credential-1.correct-secret")
+        .send({ appVersion: "1.4.2", installationId: "some-other-installation" });
+
+      expect(response.status).toBe(400);
+    });
+  });
+
   describe("identity separation - admin identity and installation identity are not interchangeable", () => {
     it("a real, valid admin access JWT is rejected on GET /installation-auth/session (401 INSTALLATION_CREDENTIAL_INVALID)", async () => {
       const adminToken = await signRealAdminAccessToken("admin-1", "session-1");
@@ -320,6 +442,8 @@ describe("Installation Auth HTTP contract", () => {
         .overrideProvider(IssueInstallationEnrollmentUseCase)
         .useValue({ execute: jest.fn() })
         .overrideProvider(RevokeInstallationCredentialUseCase)
+        .useValue({ execute: jest.fn() })
+        .overrideProvider(GetInstallationHealthUseCase)
         .useValue({ execute: jest.fn() })
         .overrideProvider(getDataSourceToken())
         .useValue(fakeDataSource);

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FakeCustomerReader } from "../../test-support/fake-customer-reader";
 import { FixedClock } from "../../test-support/fixed-clock";
 import { InMemoryLicenseRepository } from "../../test-support/in-memory-license-repository";
@@ -7,6 +9,12 @@ import { LicenseEdition } from "../../domain/license-edition";
 import { LicenseModel } from "../../domain/license-model";
 import { CreateLicenseUseCase } from "./create-license.use-case";
 import { GetLicenseSummaryUseCase } from "./get-license-summary.use-case";
+
+const ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
 
 describe("GetLicenseSummaryUseCase", () => {
   it("returns null for a missing license", async () => {
@@ -30,15 +38,19 @@ describe("GetLicenseSummaryUseCase", () => {
       customerReader,
       creationClock,
       new RandomUuidGenerator(),
-    ).execute({
-      customerId,
-      licenseNumber: "LIC-GST-00001",
-      edition: LicenseEdition.PREMIUM,
-      licenseModel: LicenseModel.SUBSCRIPTION,
-      validFrom: new Date("2026-01-01T00:00:00.000Z"),
-      validUntil: new Date("2027-01-01T00:00:00.000Z"),
-      maxInstallations: 3,
-    });
+      new FakeAuditRecorder(),
+    ).execute(
+      {
+        customerId,
+        licenseNumber: "LIC-GST-00001",
+        edition: LicenseEdition.PREMIUM,
+        licenseModel: LicenseModel.SUBSCRIPTION,
+        validFrom: new Date("2026-01-01T00:00:00.000Z"),
+        validUntil: new Date("2027-01-01T00:00:00.000Z"),
+        maxInstallations: 3,
+      },
+      ACTOR,
+    );
 
     const afterExpiry = new FixedClock(new Date("2027-06-01T00:00:00.000Z"));
     const summary = await new GetLicenseSummaryUseCase(repository, afterExpiry).execute(

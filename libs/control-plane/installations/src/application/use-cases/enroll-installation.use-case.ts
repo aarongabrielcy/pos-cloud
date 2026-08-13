@@ -1,5 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { CLOCK, type Clock, ID_GENERATOR, type IdGenerator } from "@pos-cloud/shared-kernel";
+import {
+  AUDIT_RECORDER_PORT,
+  type AuditRecorderPort,
+  type AuditRequestContext,
+  CLOCK,
+  type Clock,
+  ID_GENERATOR,
+  type IdGenerator,
+} from "@pos-cloud/shared-kernel";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import { InstallationCredential } from "../../domain/installation-credential";
 import { InstallationEnrollmentId } from "../../domain/installation-enrollment-id";
 import { isInstallationEligibleForEnrollment } from "../../domain/installation-enrollment-eligibility";
@@ -57,9 +66,20 @@ export class EnrollInstallationUseCase {
     @Inject(LICENSE_READER_PORT) private readonly licenseReader: LicenseReaderPort,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly idGenerator: IdGenerator,
+    @Inject(AUDIT_RECORDER_PORT) private readonly auditRecorder: AuditRecorderPort,
   ) {}
 
-  async execute(command: EnrollInstallationCommand): Promise<EnrollInstallationResult> {
+  /**
+   * No @CurrentInstallation() exists here (see AuditRequestContext's own comment) - the Installation
+   * is still authenticating via the enrollment code, so only `requestContext.correlationId` is known
+   * up front. The actor (actorType: INSTALLATION, actorId: the resolved installation.id) is built
+   * internally, only once the transaction below has legitimately resolved it - never from anything
+   * the caller supplies (see CLOUD-01C-D section 19).
+   */
+  async execute(
+    command: EnrollInstallationCommand,
+    requestContext: AuditRequestContext,
+  ): Promise<EnrollInstallationResult> {
     const parsed = parseOpaqueToken(command.enrollmentCode);
     if (!parsed) {
       throw new EnrollmentFailedError();
@@ -72,7 +92,7 @@ export class EnrollInstallationUseCase {
     }
     const installationId = discovered.installationId;
 
-    return this.consumptionUnitOfWork.runExclusive(installationId, async (ctx) => {
+    const outcome = await this.consumptionUnitOfWork.runExclusive(installationId, async (ctx) => {
       const installation = await ctx.findInstallationForUpdate(installationId);
       if (!installation) {
         throw new EnrollmentFailedError();
@@ -137,7 +157,26 @@ export class EnrollInstallationUseCase {
       return {
         installationId,
         credential: formatOpaqueToken(credential.id.toString(), secret),
+        purpose: enrollment.purpose,
+        resultingStatus: installation.status,
       };
     });
+
+    // Recorded only after the transaction has committed (runExclusive resolved) - never for any of
+    // the EnrollmentFailedError rejection paths above, which all throw from inside the callback
+    // before this line is ever reached.
+    await this.auditRecorder.record({
+      actor: {
+        actorType: "INSTALLATION",
+        actorId: outcome.installationId,
+        correlationId: requestContext.correlationId,
+      },
+      action: INSTALLATION_AUDIT_ACTIONS.ENROLLMENT_CONSUMED,
+      resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+      resourceId: outcome.installationId,
+      metadata: { purpose: outcome.purpose, resultingStatus: outcome.resultingStatus },
+    });
+
+    return { installationId: outcome.installationId, credential: outcome.credential };
   }
 }

@@ -1,3 +1,4 @@
+import type { AuditEvent } from "@pos-cloud/audit";
 import { type Customer, CustomerStatus } from "@pos-cloud/customer-management";
 import type { Installation } from "@pos-cloud/installations";
 import { InstallationStatus, Platform } from "@pos-cloud/installations";
@@ -116,4 +117,30 @@ export function fakeInstallation(
     createdAt: overrides.createdAt ?? FIXED_DATE,
     updatedAt: overrides.updatedAt ?? FIXED_DATE,
   } as unknown as Installation;
+}
+
+export function fakeAuditEvent(
+  overrides: Partial<{
+    id: string;
+    occurredAt: Date;
+    actorType: AuditEvent["actorType"];
+    actorId: string | null;
+    action: string;
+    resourceType: string;
+    resourceId: string;
+    correlationId: string;
+    metadata: Record<string, unknown>;
+  }> = {},
+): AuditEvent {
+  return {
+    id: overrides.id ?? "55555555-5555-4555-8555-555555555555",
+    occurredAt: overrides.occurredAt ?? FIXED_DATE,
+    actorType: overrides.actorType ?? "ADMIN",
+    actorId: overrides.actorId === null ? null : (overrides.actorId ?? "admin-1"),
+    action: overrides.action ?? "customer.created",
+    resourceType: overrides.resourceType ?? "Customer",
+    resourceId: overrides.resourceId ?? "11111111-1111-4111-8111-111111111111",
+    correlationId: overrides.correlationId ?? "correlation-1",
+    metadata: overrides.metadata ?? {},
+  };
 }

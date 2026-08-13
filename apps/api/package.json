@@ -19,6 +19,7 @@
     "@nestjs/terminus": "^10.2.3",
     "@nestjs/typeorm": "^11.0.0",
     "@pos-cloud/access-management": "workspace:*",
+    "@pos-cloud/audit": "workspace:*",
     "@pos-cloud/config": "workspace:*",
     "@pos-cloud/customer-management": "workspace:*",
     "@pos-cloud/database": "workspace:*",
