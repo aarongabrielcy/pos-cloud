@@ -340,6 +340,7 @@ describe("Auth HTTP contract", () => {
         status: AdminUserStatus.ACTIVE,
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         lastLoginAt: null,
+        permissions: ["audit.read", "customers.read"],
       });
 
       const response = await request(authedApp.getHttpServer())
@@ -354,6 +355,7 @@ describe("Auth HTTP contract", () => {
         status: "ACTIVE",
         createdAt: "2026-01-01T00:00:00.000Z",
         lastLoginAt: null,
+        permissions: ["audit.read", "customers.read"],
       });
       expect(getAdminProfileUseCase.execute).toHaveBeenCalledWith({ adminUserId: "admin-1" });
       expect(JSON.stringify(response.body)).not.toContain("passwordHash");
@@ -364,7 +366,10 @@ describe("Auth HTTP contract", () => {
       // LoginAdminUseCase gates on canAttemptLogin - see CLOUD-01C-A's /auth/me inspection). This
       // test fixes that as the current, deliberately-unchanged behavior, not a new policy -
       // @AuthenticatedOnly() never resolves permissions, so AdminAuthorizationGuard cannot see
-      // SUSPENDED here either (see docs/architecture/admin-rbac.md#suspended-semantics).
+      // SUSPENDED here either (see docs/architecture/admin-rbac.md#suspended-semantics). The
+      // GetAdminProfileUseCase-level PermissionResolverPort call is unaffected by this test's mock -
+      // in production a SUSPENDED admin's resolver call would itself return an empty set (see
+      // TypeOrmPermissionResolverAdapter), covered separately in that use case's own spec.
       getAdminProfileUseCase.execute.mockResolvedValue({
         id: "admin-1",
         email: "admin@example.com",
@@ -372,6 +377,7 @@ describe("Auth HTTP contract", () => {
         status: AdminUserStatus.SUSPENDED,
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         lastLoginAt: null,
+        permissions: [],
       });
 
       const response = await request(authedApp.getHttpServer())
@@ -380,6 +386,7 @@ describe("Auth HTTP contract", () => {
 
       expect(response.status).toBe(200);
       expect(response.body.status).toBe("SUSPENDED");
+      expect(response.body.permissions).toEqual([]);
       expect(JSON.stringify(response.body)).not.toContain("passwordHash");
     });
 

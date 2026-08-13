@@ -87,10 +87,15 @@ than being silently granted or silently dropped - see `TypeOrmPermissionResolver
 `au.status = 'ACTIVE'` in the query above means a `SUSPENDED` AdminUser resolves to an **empty**
 permission set, even if `PLATFORM_ADMIN` is assigned - every permission-gated route responds `403`
 for them, indistinguishable in the response body from "authenticated but genuinely lacks the
-permission" (see [401 vs. 403](#401-vs-403) below). This does **not** change `GET /auth/me`, which
-remains `@AuthenticatedOnly()` (see [Default-deny](#default-deny)) and never calls the permission
-resolver at all - it still returns `200` with `status: "SUSPENDED"` for a still-valid JWT, exactly as
-CLOUD-01C-A documented and this task's own brief required unchanged.
+permission" (see [401 vs. 403](#401-vs-403) below). `GET /auth/me` remains `@AuthenticatedOnly()`
+(see [Default-deny](#default-deny)) and is never gated by the resolver - it still returns `200` with
+`status: "SUSPENDED"` for a still-valid JWT, exactly as CLOUD-01C-A documented. Since
+BACKEND-HARDENING-01 (effective permissions exposure - see
+[ADR-016](../adr/ADR-016-openapi-response-contract-and-effective-permissions.md)), `GetAdminProfileUseCase`
+_does_ now call `PermissionResolverPort` (the same authority `AdminAuthorizationGuard` uses) to
+populate the response's `permissions` field - for a `SUSPENDED` admin this correctly resolves to
+`permissions: []`, consistent with (not a new exception to) the empty-set rule above; the request
+still succeeds with `200`, it just accurately reports "can do nothing right now."
 
 ## Default-deny
 

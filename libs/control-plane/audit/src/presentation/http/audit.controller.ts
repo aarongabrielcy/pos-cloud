@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiTags } from "@nestjs/swagger";
-import { PERMISSIONS, RequirePermissions } from "@pos-cloud/access-management";
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiErrorResponse, PERMISSIONS, RequirePermissions } from "@pos-cloud/access-management";
 import { ListAuditEventsUseCase } from "../../application/use-cases/list-audit-events.use-case";
 import { AuditEventListResponseDto } from "./dto/audit-event-list.response.dto";
 import { AuditEventResponseDto } from "./dto/audit-event.response.dto";
@@ -12,12 +12,14 @@ import { ListAuditEventsQueryDto } from "./dto/list-audit-events.query.dto";
  */
 @ApiTags("audit")
 @ApiBearerAuth("admin-bearer")
+@ApiErrorResponse()
 @Controller("api/v1/control-plane/audit-events")
 export class AuditController {
   constructor(private readonly listAuditEventsUseCase: ListAuditEventsUseCase) {}
 
   @Get()
   @RequirePermissions(PERMISSIONS.AUDIT.READ)
+  @ApiOkResponse({ type: AuditEventListResponseDto })
   @ApiOperation({ summary: "List audit events (paginated, filterable)" })
   async list(@Query() query: ListAuditEventsQueryDto): Promise<AuditEventListResponseDto> {
     const result = await this.listAuditEventsUseCase.execute({

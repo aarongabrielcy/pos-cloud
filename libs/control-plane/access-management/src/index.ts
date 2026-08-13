@@ -59,6 +59,7 @@ export {
   IS_AUTHENTICATED_ONLY_KEY,
 } from "./presentation/http/decorators/authenticated-only.decorator";
 export { CurrentAdmin } from "./presentation/http/decorators/current-admin.decorator";
+export { ApiErrorResponse } from "./presentation/http/decorators/api-error-response.decorator";
 export { IS_PUBLIC_KEY, Public } from "./presentation/http/decorators/public.decorator";
 export {
   REQUIRED_PERMISSIONS_KEY,
