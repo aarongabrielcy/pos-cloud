@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import { Installation } from "../../domain/installation";
 import { InstallationCode } from "../../domain/installation-code";
 import { InstallationCredential } from "../../domain/installation-credential";
@@ -6,12 +7,19 @@ import { InstallationId } from "../../domain/installation-id";
 import { InstallationStatus } from "../../domain/installation-status";
 import { InstallationNotFoundError } from "../../domain/installation.errors";
 import { Platform } from "../../domain/platform";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FixedClock } from "../../test-support/fixed-clock";
 import { InMemoryInstallationCredentialRepository } from "../../test-support/in-memory-installation-credential-repository";
 import { InMemoryInstallationRepository } from "../../test-support/in-memory-installation-repository";
 import { RevokeInstallationCredentialUseCase } from "./revoke-installation-credential.use-case";
 
 const BASE_TIME = new Date("2026-01-01T00:00:00.000Z");
+const ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
 
 function buildInstallation(): Installation {
   return Installation.reconstitute({
@@ -33,19 +41,21 @@ function setup() {
   const credentials = new Map<string, InstallationCredential>();
   const credentialRepository = new InMemoryInstallationCredentialRepository(credentials);
   const clock = new FixedClock(BASE_TIME);
+  const auditRecorder = new FakeAuditRecorder();
   const useCase = new RevokeInstallationCredentialUseCase(
     installations,
     credentialRepository,
     clock,
+    auditRecorder,
   );
-  return { installations, credentials, credentialRepository, useCase, clock };
+  return { installations, credentials, credentialRepository, useCase, clock, auditRecorder };
 }
 
 describe("RevokeInstallationCredentialUseCase", () => {
   it("fails when the installation does not exist", async () => {
     const { useCase } = setup();
 
-    await expect(useCase.execute({ installationId: randomUUID() })).rejects.toThrow(
+    await expect(useCase.execute({ installationId: randomUUID() }, ACTOR)).rejects.toThrow(
       InstallationNotFoundError,
     );
   });
@@ -56,8 +66,18 @@ describe("RevokeInstallationCredentialUseCase", () => {
     await installations.save(installation);
 
     await expect(
-      useCase.execute({ installationId: installation.id.toString() }),
+      useCase.execute({ installationId: installation.id.toString() }, ACTOR),
     ).resolves.toBeUndefined();
+  });
+
+  it("does not record an audit event for the idempotent no-op branch", async () => {
+    const { installations, useCase, auditRecorder } = setup();
+    const installation = buildInstallation();
+    await installations.save(installation);
+
+    await useCase.execute({ installationId: installation.id.toString() }, ACTOR);
+
+    expect(auditRecorder.recorded).toHaveLength(0);
   });
 
   it("revokes the active credential", async () => {
@@ -70,9 +90,32 @@ describe("RevokeInstallationCredentialUseCase", () => {
     );
     credentials.set(credential.id.toString(), credential);
 
-    await useCase.execute({ installationId: installation.id.toString() });
+    await useCase.execute({ installationId: installation.id.toString() }, ACTOR);
 
     expect(credential.isRevoked()).toBe(true);
+  });
+
+  it("records an audit event when a credential was actually revoked", async () => {
+    const { installations, credentials, useCase, auditRecorder } = setup();
+    const installation = buildInstallation();
+    await installations.save(installation);
+    const credential = InstallationCredential.issue(
+      { id: randomUUID(), installationId: installation.id.toString(), secretHash: "a".repeat(64) },
+      new FixedClock(BASE_TIME),
+    );
+    credentials.set(credential.id.toString(), credential);
+
+    await useCase.execute({ installationId: installation.id.toString() }, ACTOR);
+
+    expect(auditRecorder.recorded).toEqual([
+      {
+        actor: ACTOR,
+        action: INSTALLATION_AUDIT_ACTIONS.CREDENTIAL_REVOKED,
+        resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+        resourceId: installation.id.toString(),
+        metadata: {},
+      },
+    ]);
   });
 
   it("never changes Installation.status", async () => {
@@ -85,7 +128,7 @@ describe("RevokeInstallationCredentialUseCase", () => {
     );
     credentials.set(credential.id.toString(), credential);
 
-    await useCase.execute({ installationId: installation.id.toString() });
+    await useCase.execute({ installationId: installation.id.toString() }, ACTOR);
 
     const stored = await installations.findById(installation.id);
     expect(stored?.status).toBe(InstallationStatus.ACTIVE);
@@ -101,9 +144,9 @@ describe("RevokeInstallationCredentialUseCase", () => {
     );
     credentials.set(credential.id.toString(), credential);
 
-    await useCase.execute({ installationId: installation.id.toString() });
+    await useCase.execute({ installationId: installation.id.toString() }, ACTOR);
     await expect(
-      useCase.execute({ installationId: installation.id.toString() }),
+      useCase.execute({ installationId: installation.id.toString() }, ACTOR),
     ).resolves.toBeUndefined();
   });
 });

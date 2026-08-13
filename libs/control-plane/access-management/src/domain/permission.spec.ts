@@ -3,9 +3,9 @@ import { ALL_PERMISSION_CODES, PERMISSIONS } from "./permission";
 const PERMISSION_CODE_FORMAT = /^[a-z]+(\.[a-z]+)+$/;
 
 describe("permission catalog", () => {
-  it("has exactly the 12 permissions (10 from CLOUD-01C-B + 2 from CLOUD-01C-C)", () => {
-    expect(ALL_PERMISSION_CODES).toHaveLength(12);
-    expect(new Set(ALL_PERMISSION_CODES).size).toBe(12);
+  it("has exactly the 13 permissions (10 from CLOUD-01C-B + 2 from CLOUD-01C-C + 1 from CLOUD-01C-D)", () => {
+    expect(ALL_PERMISSION_CODES).toHaveLength(13);
+    expect(new Set(ALL_PERMISSION_CODES).size).toBe(13);
   });
 
   it("every code matches the ^[a-z]+(\\.[a-z]+)+$ format mirrored by the migrations' CHECK constraints", () => {
@@ -14,7 +14,7 @@ describe("permission catalog", () => {
     }
   });
 
-  it("exposes the exact codes derived from the 13 real business endpoints plus CLOUD-01C-C's 2 enrollment/credential endpoints", () => {
+  it("exposes the exact codes derived from the 13 real business endpoints, CLOUD-01C-C's 2 enrollment/credential endpoints, and CLOUD-01C-D's audit.read", () => {
     expect(new Set(ALL_PERMISSION_CODES)).toEqual(
       new Set([
         "customers.read",
@@ -29,6 +29,7 @@ describe("permission catalog", () => {
         "installations.status.change",
         "installations.enrollment.manage",
         "installations.credentials.manage",
+        "audit.read",
       ]),
     );
   });

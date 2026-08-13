@@ -30,9 +30,11 @@ import {
   CreateInstallationUseCase,
   EnrollInstallationUseCase,
   GetInstallationByIdUseCase,
+  GetInstallationHealthUseCase,
   InstallationsModule,
   IssueInstallationEnrollmentUseCase,
   ListInstallationsUseCase,
+  RecordInstallationHeartbeatUseCase,
   RevokeInstallationCredentialUseCase,
 } from "@pos-cloud/installations";
 import {
@@ -43,6 +45,7 @@ import {
   ListLicensesUseCase,
   ReplaceLicenseEntitlementsUseCase,
 } from "@pos-cloud/licensing";
+import { AuditModule, ListAuditEventsUseCase } from "@pos-cloud/audit";
 import { FakeDatabaseModule } from "../test-support/fake-database.module";
 
 const fakeAuthConfig: AuthConfig = {
@@ -224,6 +227,13 @@ const EXPECTED_PROTECTION_MATRIX: ExpectedHandler[] = [
     path: ":id/credentials/revoke",
     classification: "installations.credentials.manage",
   },
+  {
+    controllerName: "InstallationController",
+    methodName: "getHealth",
+    method: "GET",
+    path: ":id/health",
+    classification: "installations.read",
+  },
 
   {
     controllerName: "InstallationAuthController",
@@ -238,6 +248,22 @@ const EXPECTED_PROTECTION_MATRIX: ExpectedHandler[] = [
     method: "GET",
     path: "session",
     classification: "installationAuthenticated",
+  },
+
+  {
+    controllerName: "InstallationHealthController",
+    methodName: "heartbeat",
+    method: "POST",
+    path: "heartbeat",
+    classification: "installationAuthenticated",
+  },
+
+  {
+    controllerName: "AuditController",
+    methodName: "list",
+    method: "GET",
+    path: "",
+    classification: "audit.read",
   },
 ];
 
@@ -256,6 +282,7 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
         CustomerManagementModule,
         LicensingModule,
         InstallationsModule,
+        AuditModule,
       ],
     })
       .overrideProvider(LoginAdminUseCase)
@@ -297,6 +324,12 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
       .overrideProvider(RevokeInstallationCredentialUseCase)
       .useValue({ execute: jest.fn() })
       .overrideProvider(EnrollInstallationUseCase)
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(GetInstallationHealthUseCase)
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(RecordInstallationHeartbeatUseCase)
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(ListAuditEventsUseCase)
       .useValue({ execute: jest.fn() })
       .compile();
 
@@ -370,12 +403,14 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
     },
   );
 
-  it("every discovered CustomerController/LicenseController/InstallationController/InstallationAuthController handler is accounted for in the table above - a new endpoint added without updating this file fails here", () => {
+  it("every discovered CustomerController/LicenseController/InstallationController/InstallationAuthController/InstallationHealthController/AuditController handler is accounted for in the table above - a new endpoint added without updating this file fails here", () => {
     const businessControllerNames = [
       "CustomerController",
       "LicenseController",
       "InstallationController",
       "InstallationAuthController",
+      "InstallationHealthController",
+      "AuditController",
     ];
     const wrappers = discoveryService
       .getControllers()

@@ -1,5 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { CLOCK, type Clock, ID_GENERATOR, type IdGenerator } from "@pos-cloud/shared-kernel";
+import {
+  AUDIT_RECORDER_PORT,
+  type AuditActorContext,
+  type AuditRecorderPort,
+  CLOCK,
+  type Clock,
+  ID_GENERATOR,
+  type IdGenerator,
+} from "@pos-cloud/shared-kernel";
+import { CUSTOMER_AUDIT_ACTIONS, CUSTOMER_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import { CustomerCode } from "../../domain/customer-code";
 import {
   CUSTOMER_REPOSITORY,
@@ -20,9 +29,10 @@ export class CreateCustomerUseCase {
     @Inject(CUSTOMER_REPOSITORY) private readonly customers: CustomerRepository,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly idGenerator: IdGenerator,
+    @Inject(AUDIT_RECORDER_PORT) private readonly auditRecorder: AuditRecorderPort,
   ) {}
 
-  async execute(command: CreateCustomerCommand): Promise<Customer> {
+  async execute(command: CreateCustomerCommand, actor: AuditActorContext): Promise<Customer> {
     const code = CustomerCode.create(command.code);
 
     // Known race: a concurrent request could pass this check for the same code before either
@@ -44,6 +54,14 @@ export class CreateCustomerUseCase {
     );
 
     await this.customers.save(customer);
+
+    await this.auditRecorder.record({
+      actor,
+      action: CUSTOMER_AUDIT_ACTIONS.CREATED,
+      resourceType: CUSTOMER_AUDIT_RESOURCE_TYPE,
+      resourceId: customer.id.toString(),
+      metadata: {},
+    });
 
     return customer;
   }

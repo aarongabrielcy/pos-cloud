@@ -56,16 +56,20 @@ async function bootstrap(): Promise<void> {
   // without one. Since CLOUD-01C-C, `installation-bearer` is a second, separate security scheme for
   // the machine identity plane (POST /installation-auth/enroll takes neither scheme - see
   // docs/architecture/installation-enrollment.md#openapi) - the two schemes are never mixed on the
-  // same route, since an admin JWT and an installation credential are not interchangeable.
+  // same route, since an admin JWT and an installation credential are not interchangeable. Since
+  // CLOUD-01C-D, `installation-health` (heartbeat) carries installation-bearer only, and
+  // `audit` (read) carries admin-bearer only - see docs/architecture/installation-health.md#openapi
+  // and docs/architecture/audit.md#rbac.
   if (config.env !== "production") {
     const document = SwaggerModule.createDocument(
       app,
       new DocumentBuilder()
         .setTitle("POSPlatform Cloud - Control Plane API")
         .setDescription(
-          "Vendor/Admin Control Plane: Customer Management, Licensing, Installations, Auth. " +
-            "Customers/Licenses/Installations require a Bearer admin access token and RBAC permission. " +
-            "installation-auth is a separate machine identity plane with its own Bearer scheme.",
+          "Vendor/Admin Control Plane: Customer Management, Licensing, Installations, Auth, Audit. " +
+            "Customers/Licenses/Installations/Audit require a Bearer admin access token and RBAC " +
+            "permission. installation-auth/installation-health are a separate machine identity plane " +
+            "with their own Bearer scheme.",
         )
         .setVersion("1.0")
         .addTag("customers")
@@ -73,6 +77,8 @@ async function bootstrap(): Promise<void> {
         .addTag("installations")
         .addTag("auth")
         .addTag("installation-auth")
+        .addTag("installation-health")
+        .addTag("audit")
         .addBearerAuth({ type: "http", scheme: "bearer", bearerFormat: "JWT" }, "admin-bearer")
         .addBearerAuth(
           { type: "http", scheme: "bearer", bearerFormat: "<credentialId>.<secret>" },

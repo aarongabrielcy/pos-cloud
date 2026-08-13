@@ -5,6 +5,7 @@ import type { InstallationCode } from "../domain/installation-code";
 import type { InstallationId } from "../domain/installation-id";
 import { InstallationStatus } from "../domain/installation-status";
 import type {
+  InstallationListItem,
   InstallationRepository,
   ListInstallationsCriteria,
 } from "../domain/installation-repository.port";
@@ -12,6 +13,12 @@ import type {
 /** Test double for InstallationRepository - never used in production code. */
 export class InMemoryInstallationRepository implements InstallationRepository {
   private readonly byId = new Map<string, Installation>();
+  private readonly lastSeenById = new Map<string, Date>();
+
+  /** Lets a test simulate a heartbeat-derived lastSeenAt for list() without a real health table. */
+  setLastSeenAt(installationId: string, lastSeenAt: Date): void {
+    this.lastSeenById.set(installationId, lastSeenAt);
+  }
 
   async findById(id: InstallationId): Promise<Installation | null> {
     return this.byId.get(id.toString()) ?? null;
@@ -38,7 +45,7 @@ export class InMemoryInstallationRepository implements InstallationRepository {
     ).length;
   }
 
-  async list(criteria: ListInstallationsCriteria): Promise<PaginatedResult<Installation>> {
+  async list(criteria: ListInstallationsCriteria): Promise<PaginatedResult<InstallationListItem>> {
     let items = [...this.byId.values()];
 
     if (criteria.customerId) {
@@ -66,6 +73,13 @@ export class InMemoryInstallationRepository implements InstallationRepository {
     const start = (criteria.page - 1) * criteria.pageSize;
     const page = items.slice(start, start + criteria.pageSize);
 
-    return buildPaginatedResult(page, total, criteria);
+    return buildPaginatedResult(
+      page.map((installation) => ({
+        installation,
+        lastSeenAt: this.lastSeenById.get(installation.id.toString()) ?? null,
+      })),
+      total,
+      criteria,
+    );
   }
 }

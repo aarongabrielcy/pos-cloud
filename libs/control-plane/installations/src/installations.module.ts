@@ -5,29 +5,36 @@ import { ChangeInstallationStatusUseCase } from "./application/use-cases/change-
 import { CreateInstallationUseCase } from "./application/use-cases/create-installation.use-case";
 import { EnrollInstallationUseCase } from "./application/use-cases/enroll-installation.use-case";
 import { GetInstallationByIdUseCase } from "./application/use-cases/get-installation-by-id.use-case";
+import { GetInstallationHealthUseCase } from "./application/use-cases/get-installation-health.use-case";
 import { IssueInstallationEnrollmentUseCase } from "./application/use-cases/issue-installation-enrollment.use-case";
 import { ListInstallationsUseCase } from "./application/use-cases/list-installations.use-case";
+import { RecordInstallationHeartbeatUseCase } from "./application/use-cases/record-installation-heartbeat.use-case";
 import { RevokeInstallationCredentialUseCase } from "./application/use-cases/revoke-installation-credential.use-case";
 import { INSTALLATION_CREDENTIAL_REPOSITORY } from "./application/ports/installation-credential-repository.port";
 import { INSTALLATION_CREDENTIAL_VERIFIER } from "./application/ports/installation-credential-verifier.port";
 import { INSTALLATION_ENROLLMENT_CONSUMPTION_UNIT_OF_WORK } from "./application/ports/installation-enrollment-consumption-unit-of-work.port";
 import { INSTALLATION_ENROLLMENT_ISSUANCE_UNIT_OF_WORK } from "./application/ports/installation-enrollment-issuance-unit-of-work.port";
 import { INSTALLATION_ENROLLMENT_REPOSITORY } from "./application/ports/installation-enrollment-repository.port";
+import { INSTALLATION_HEALTH_READER } from "./application/ports/installation-health-reader.port";
+import { INSTALLATION_HEALTH_WRITER } from "./application/ports/installation-health-writer.port";
 import { INSTALLATION_SECRET_GENERATOR } from "./application/ports/installation-secret-generator.port";
 import { INSTALLATION_REPOSITORY } from "./domain/installation-repository.port";
 import { CryptoInstallationSecretGenerator } from "./infrastructure/security/crypto-installation-secret-generator.adapter";
 import { InstallationCredentialRecord } from "./infrastructure/persistence/installation-credential.record";
 import { InstallationEnrollmentRecord } from "./infrastructure/persistence/installation-enrollment.record";
+import { InstallationHealthRecord } from "./infrastructure/persistence/installation-health.record";
 import { InstallationRecord } from "./infrastructure/persistence/installation.record";
 import { TypeOrmInstallationCredentialRepository } from "./infrastructure/persistence/typeorm-installation-credential.repository";
 import { TypeOrmInstallationCredentialVerifierAdapter } from "./infrastructure/persistence/typeorm-installation-credential-verifier.adapter";
 import { TypeOrmInstallationEnrollmentConsumptionUnitOfWork } from "./infrastructure/persistence/typeorm-installation-enrollment-consumption-unit-of-work";
 import { TypeOrmInstallationEnrollmentIssuanceUnitOfWork } from "./infrastructure/persistence/typeorm-installation-enrollment-issuance-unit-of-work";
 import { TypeOrmInstallationEnrollmentRepository } from "./infrastructure/persistence/typeorm-installation-enrollment.repository";
+import { TypeOrmInstallationHealthRepository } from "./infrastructure/persistence/typeorm-installation-health.repository";
 import { TypeOrmInstallationRepository } from "./infrastructure/persistence/typeorm-installation.repository";
 import { InstallationAuthGuard } from "./presentation/http/guards/installation-auth.guard";
 import { InstallationAuthController } from "./presentation/http/installation-auth.controller";
 import { InstallationController } from "./presentation/http/installation.controller";
+import { InstallationHealthController } from "./presentation/http/installation-health.controller";
 
 /**
  * Public NestJS module for the Installations bounded context. `CUSTOMER_READER_PORT` and
@@ -47,9 +54,10 @@ import { InstallationController } from "./presentation/http/installation.control
       InstallationRecord,
       InstallationEnrollmentRecord,
       InstallationCredentialRecord,
+      InstallationHealthRecord,
     ]),
   ],
-  controllers: [InstallationController, InstallationAuthController],
+  controllers: [InstallationController, InstallationAuthController, InstallationHealthController],
   providers: [
     { provide: INSTALLATION_REPOSITORY, useClass: TypeOrmInstallationRepository },
     {
@@ -75,6 +83,9 @@ import { InstallationController } from "./presentation/http/installation.control
     { provide: INSTALLATION_SECRET_GENERATOR, useClass: CryptoInstallationSecretGenerator },
     { provide: CLOCK, useClass: SystemClock },
     { provide: ID_GENERATOR, useClass: RandomUuidGenerator },
+    TypeOrmInstallationHealthRepository,
+    { provide: INSTALLATION_HEALTH_WRITER, useExisting: TypeOrmInstallationHealthRepository },
+    { provide: INSTALLATION_HEALTH_READER, useExisting: TypeOrmInstallationHealthRepository },
     CreateInstallationUseCase,
     GetInstallationByIdUseCase,
     ListInstallationsUseCase,
@@ -82,6 +93,8 @@ import { InstallationController } from "./presentation/http/installation.control
     IssueInstallationEnrollmentUseCase,
     EnrollInstallationUseCase,
     RevokeInstallationCredentialUseCase,
+    RecordInstallationHeartbeatUseCase,
+    GetInstallationHealthUseCase,
     InstallationAuthGuard,
   ],
   exports: [InstallationAuthGuard],

@@ -1,4 +1,6 @@
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FixedClock } from "../../test-support/fixed-clock";
 import { InMemoryCustomerRepository } from "../../test-support/in-memory-customer-repository";
 import { CustomerStatus } from "../../domain/customer-status";
@@ -7,16 +9,25 @@ import { ChangeCustomerStatusUseCase } from "./change-customer-status.use-case";
 import { ListCustomersUseCase } from "./list-customers.use-case";
 
 const clock = new FixedClock(new Date("2026-01-01T00:00:00.000Z"));
+const ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
 
 async function seed(repository: InMemoryCustomerRepository) {
-  const createUseCase = new CreateCustomerUseCase(repository, clock, new RandomUuidGenerator());
-  await createUseCase.execute({
-    code: "GST-MX",
-    legalName: "GS Trackme S.A.",
-    tradeName: "GS Trackme",
-  });
-  await createUseCase.execute({ code: "ACME-01", legalName: "Acme Corp" });
-  await createUseCase.execute({ code: "ACME-02", legalName: "Acme Two Corp" });
+  const createUseCase = new CreateCustomerUseCase(
+    repository,
+    clock,
+    new RandomUuidGenerator(),
+    new FakeAuditRecorder(),
+  );
+  await createUseCase.execute(
+    { code: "GST-MX", legalName: "GS Trackme S.A.", tradeName: "GS Trackme" },
+    ACTOR,
+  );
+  await createUseCase.execute({ code: "ACME-01", legalName: "Acme Corp" }, ACTOR);
+  await createUseCase.execute({ code: "ACME-02", legalName: "Acme Two Corp" }, ACTOR);
 }
 
 describe("ListCustomersUseCase", () => {
@@ -44,10 +55,10 @@ describe("ListCustomersUseCase", () => {
     const repository = new InMemoryCustomerRepository();
     await seed(repository);
     const [first] = (await repository.list({ page: 1, pageSize: 10 })).items;
-    await new ChangeCustomerStatusUseCase(repository, clock).execute({
-      id: first.id.toString(),
-      status: CustomerStatus.SUSPENDED,
-    });
+    await new ChangeCustomerStatusUseCase(repository, clock, new FakeAuditRecorder()).execute(
+      { id: first.id.toString(), status: CustomerStatus.SUSPENDED },
+      ACTOR,
+    );
 
     const result = await new ListCustomersUseCase(repository).execute({
       status: CustomerStatus.SUSPENDED,

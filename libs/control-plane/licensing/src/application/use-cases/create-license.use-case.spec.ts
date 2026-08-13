@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FakeCustomerReader } from "../../test-support/fake-customer-reader";
 import { FixedClock } from "../../test-support/fixed-clock";
 import { InMemoryLicenseRepository } from "../../test-support/in-memory-license-repository";
@@ -10,20 +12,28 @@ import {
   LicenseCustomerNotFoundError,
   LicenseNumberAlreadyExistsError,
 } from "../../domain/license.errors";
+import { LICENSE_AUDIT_ACTIONS, LICENSE_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import { CreateLicenseUseCase } from "./create-license.use-case";
 
 const clock = new FixedClock(new Date("2026-01-01T00:00:00.000Z"));
+const ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
 
 function setup() {
   const repository = new InMemoryLicenseRepository();
   const customerReader = new FakeCustomerReader();
+  const auditRecorder = new FakeAuditRecorder();
   const useCase = new CreateLicenseUseCase(
     repository,
     customerReader,
     clock,
     new RandomUuidGenerator(),
+    auditRecorder,
   );
-  return { repository, customerReader, useCase };
+  return { repository, customerReader, useCase, auditRecorder };
 }
 
 const validCommand = {
@@ -40,21 +50,25 @@ describe("CreateLicenseUseCase", () => {
   it("fails when the customer does not exist", async () => {
     const { useCase } = setup();
 
-    await expect(useCase.execute(validCommand)).rejects.toThrow(LicenseCustomerNotFoundError);
+    await expect(useCase.execute(validCommand, ACTOR)).rejects.toThrow(
+      LicenseCustomerNotFoundError,
+    );
   });
 
   it("fails when the customer is not active (e.g. SUSPENDED)", async () => {
     const { useCase, customerReader } = setup();
     customerReader.register({ id: validCommand.customerId, active: false });
 
-    await expect(useCase.execute(validCommand)).rejects.toThrow(CustomerNotEligibleForLicenseError);
+    await expect(useCase.execute(validCommand, ACTOR)).rejects.toThrow(
+      CustomerNotEligibleForLicenseError,
+    );
   });
 
   it("creates a license for an active customer", async () => {
     const { useCase, customerReader } = setup();
     customerReader.register({ id: validCommand.customerId, active: true });
 
-    const license = await useCase.execute(validCommand);
+    const license = await useCase.execute(validCommand, ACTOR);
 
     expect(license.licenseNumber.toString()).toBe("LIC-GST-00001");
   });
@@ -62,25 +76,45 @@ describe("CreateLicenseUseCase", () => {
   it("rejects a duplicate license number", async () => {
     const { useCase, customerReader } = setup();
     customerReader.register({ id: validCommand.customerId, active: true });
-    await useCase.execute(validCommand);
+    await useCase.execute(validCommand, ACTOR);
 
     const otherCustomerId = randomUUID();
     customerReader.register({ id: otherCustomerId, active: true });
 
-    await expect(useCase.execute({ ...validCommand, customerId: otherCustomerId })).rejects.toThrow(
-      LicenseNumberAlreadyExistsError,
-    );
+    await expect(
+      useCase.execute({ ...validCommand, customerId: otherCustomerId }, ACTOR),
+    ).rejects.toThrow(LicenseNumberAlreadyExistsError);
   });
 
   it("creates a license together with its initial entitlements", async () => {
     const { useCase, customerReader } = setup();
     customerReader.register({ id: validCommand.customerId, active: true });
 
-    const license = await useCase.execute({
-      ...validCommand,
-      entitlements: [{ code: "integrated_payments", enabled: true, configuration: null }],
-    });
+    const license = await useCase.execute(
+      {
+        ...validCommand,
+        entitlements: [{ code: "integrated_payments", enabled: true, configuration: null }],
+      },
+      ACTOR,
+    );
 
     expect(license.entitlements).toHaveLength(1);
+  });
+
+  it("records an audit event after the License is persisted", async () => {
+    const { useCase, customerReader, auditRecorder } = setup();
+    customerReader.register({ id: validCommand.customerId, active: true });
+
+    const license = await useCase.execute(validCommand, ACTOR);
+
+    expect(auditRecorder.recorded).toEqual([
+      {
+        actor: ACTOR,
+        action: LICENSE_AUDIT_ACTIONS.CREATED,
+        resourceType: LICENSE_AUDIT_RESOURCE_TYPE,
+        resourceId: license.id.toString(),
+        metadata: {},
+      },
+    ]);
   });
 });

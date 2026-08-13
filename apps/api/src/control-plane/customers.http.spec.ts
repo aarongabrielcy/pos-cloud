@@ -1,4 +1,11 @@
-import type { INestApplication } from "@nestjs/common";
+import {
+  type CanActivate,
+  type ExecutionContext,
+  Injectable,
+  type INestApplication,
+  Module,
+} from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import {
   ChangeCustomerStatusUseCase,
   CreateCustomerUseCase,
@@ -13,6 +20,27 @@ import request from "supertest";
 import { fakeCustomer } from "../test-support/fixtures";
 import { createHttpTestModuleBuilder, initHttpTestApp } from "../test-support/http-test-app";
 
+const STUB_ADMIN_ID = "test-admin-id";
+
+/**
+ * This file tests Customer HTTP/business behavior, not admin authentication/RBAC (that's
+ * rbac-protection.http.spec.ts) - so instead of wiring the real AccessTokenGuard/
+ * AdminAuthorizationGuard chain (JWT verification, PermissionResolver, a real admin fixture), a
+ * minimal stub guard sets `request.currentAdmin` unconditionally, satisfying @CurrentAdmin() so
+ * controllers can build an audit actor.
+ */
+@Injectable()
+class StubCurrentAdminGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    request.currentAdmin = { adminUserId: STUB_ADMIN_ID, sessionId: "test-session-id" };
+    return true;
+  }
+}
+
+@Module({ providers: [{ provide: APP_GUARD, useClass: StubCurrentAdminGuard }] })
+class StubCurrentAdminModule {}
+
 describe("Customers HTTP contract", () => {
   let app: INestApplication;
   let createCustomerUseCase: { execute: jest.Mock };
@@ -26,7 +54,10 @@ describe("Customers HTTP contract", () => {
     listCustomersUseCase = { execute: jest.fn() };
     changeCustomerStatusUseCase = { execute: jest.fn() };
 
-    const moduleBuilder = createHttpTestModuleBuilder([CustomerManagementModule])
+    const moduleBuilder = createHttpTestModuleBuilder([
+      StubCurrentAdminModule,
+      CustomerManagementModule,
+    ])
       .overrideProvider(CreateCustomerUseCase)
       .useValue(createCustomerUseCase)
       .overrideProvider(GetCustomerByIdUseCase)
@@ -53,11 +84,10 @@ describe("Customers HTTP contract", () => {
 
       expect(response.status).toBe(201);
       expect(response.body).toMatchObject({ code: "GST-MX", status: CustomerStatus.ACTIVE });
-      expect(createCustomerUseCase.execute).toHaveBeenCalledWith({
-        code: "GST-MX",
-        legalName: "GS Trackme S.A. de C.V.",
-        tradeName: "GS Trackme",
-      });
+      expect(createCustomerUseCase.execute).toHaveBeenCalledWith(
+        { code: "GST-MX", legalName: "GS Trackme S.A. de C.V.", tradeName: "GS Trackme" },
+        { actorType: "ADMIN", actorId: STUB_ADMIN_ID, correlationId: expect.any(String) },
+      );
     });
 
     it("returns 400 when the body has an unknown property (forbidNonWhitelisted)", async () => {

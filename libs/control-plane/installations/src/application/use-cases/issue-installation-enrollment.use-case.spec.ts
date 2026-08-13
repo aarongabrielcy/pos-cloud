@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { InstallationAuthConfig } from "@pos-cloud/config";
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
 import { Installation } from "../../domain/installation";
 import { InstallationCode } from "../../domain/installation-code";
@@ -12,12 +13,19 @@ import {
   InstallationNotFoundError,
 } from "../../domain/installation.errors";
 import { Platform } from "../../domain/platform";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FakeInstallationSecretGenerator } from "../../test-support/fake-installation-secret-generator";
 import { FixedClock } from "../../test-support/fixed-clock";
 import { InMemoryInstallationEnrollmentIssuanceUnitOfWork } from "../../test-support/in-memory-installation-enrollment-issuance-unit-of-work";
 import { IssueInstallationEnrollmentUseCase } from "./issue-installation-enrollment.use-case";
 
 const BASE_TIME = new Date("2026-01-01T00:00:00.000Z");
+const ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
 
 function buildInstallation(status: InstallationStatus): Installation {
   const installation = Installation.reconstitute({
@@ -45,14 +53,16 @@ function setup(ttlSeconds = 900) {
   const secretGenerator = new FakeInstallationSecretGenerator();
   const clock = new FixedClock(BASE_TIME);
   const installationAuthConfig: InstallationAuthConfig = { enrollmentCodeTtlSeconds: ttlSeconds };
+  const auditRecorder = new FakeAuditRecorder();
   const useCase = new IssueInstallationEnrollmentUseCase(
     unitOfWork,
     secretGenerator,
     clock,
     new RandomUuidGenerator(),
     installationAuthConfig,
+    auditRecorder,
   );
-  return { installations, enrollments, useCase, secretGenerator };
+  return { installations, enrollments, useCase, secretGenerator, auditRecorder };
 }
 
 describe("IssueInstallationEnrollmentUseCase", () => {
@@ -60,10 +70,10 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     const { useCase } = setup();
 
     await expect(
-      useCase.execute({
-        installationId: randomUUID(),
-        purpose: InstallationEnrollmentPurpose.INITIAL,
-      }),
+      useCase.execute(
+        { installationId: randomUUID(), purpose: InstallationEnrollmentPurpose.INITIAL },
+        ACTOR,
+      ),
     ).rejects.toThrow(InstallationNotFoundError);
   });
 
@@ -72,10 +82,13 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     const installation = buildInstallation(InstallationStatus.PENDING);
     installations.set(installation.id.toString(), installation);
 
-    const result = await useCase.execute({
-      installationId: installation.id.toString(),
-      purpose: InstallationEnrollmentPurpose.INITIAL,
-    });
+    const result = await useCase.execute(
+      {
+        installationId: installation.id.toString(),
+        purpose: InstallationEnrollmentPurpose.INITIAL,
+      },
+      ACTOR,
+    );
 
     expect(result.installationId).toBe(installation.id.toString());
     expect(result.enrollmentCode).toContain(".");
@@ -85,16 +98,60 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     expect(stored.isConsumable(BASE_TIME)).toBe(true);
   });
 
+  it("records an audit event with purpose metadata after a successful issuance", async () => {
+    const { installations, useCase, auditRecorder } = setup();
+    const installation = buildInstallation(InstallationStatus.PENDING);
+    installations.set(installation.id.toString(), installation);
+
+    await useCase.execute(
+      {
+        installationId: installation.id.toString(),
+        purpose: InstallationEnrollmentPurpose.INITIAL,
+      },
+      ACTOR,
+    );
+
+    expect(auditRecorder.recorded).toEqual([
+      {
+        actor: ACTOR,
+        action: INSTALLATION_AUDIT_ACTIONS.ENROLLMENT_ISSUED,
+        resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+        resourceId: installation.id.toString(),
+        metadata: { purpose: InstallationEnrollmentPurpose.INITIAL },
+      },
+    ]);
+  });
+
+  it("does not record an audit event when issuance fails", async () => {
+    const { installations, useCase, auditRecorder } = setup();
+    const installation = buildInstallation(InstallationStatus.ACTIVE);
+    installations.set(installation.id.toString(), installation);
+
+    await expect(
+      useCase.execute(
+        {
+          installationId: installation.id.toString(),
+          purpose: InstallationEnrollmentPurpose.INITIAL,
+        },
+        ACTOR,
+      ),
+    ).rejects.toThrow(InstallationNotEligibleForEnrollmentError);
+    expect(auditRecorder.recorded).toHaveLength(0);
+  });
+
   it("INITIAL rejects an ACTIVE installation", async () => {
     const { installations, useCase } = setup();
     const installation = buildInstallation(InstallationStatus.ACTIVE);
     installations.set(installation.id.toString(), installation);
 
     await expect(
-      useCase.execute({
-        installationId: installation.id.toString(),
-        purpose: InstallationEnrollmentPurpose.INITIAL,
-      }),
+      useCase.execute(
+        {
+          installationId: installation.id.toString(),
+          purpose: InstallationEnrollmentPurpose.INITIAL,
+        },
+        ACTOR,
+      ),
     ).rejects.toThrow(InstallationNotEligibleForEnrollmentError);
   });
 
@@ -103,10 +160,13 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     const installation = buildInstallation(InstallationStatus.ACTIVE);
     installations.set(installation.id.toString(), installation);
 
-    const result = await useCase.execute({
-      installationId: installation.id.toString(),
-      purpose: InstallationEnrollmentPurpose.RECOVERY,
-    });
+    const result = await useCase.execute(
+      {
+        installationId: installation.id.toString(),
+        purpose: InstallationEnrollmentPurpose.RECOVERY,
+      },
+      ACTOR,
+    );
 
     expect(result.enrollmentCode).toContain(".");
   });
@@ -117,10 +177,13 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     installations.set(installation.id.toString(), installation);
 
     await expect(
-      useCase.execute({
-        installationId: installation.id.toString(),
-        purpose: InstallationEnrollmentPurpose.RECOVERY,
-      }),
+      useCase.execute(
+        {
+          installationId: installation.id.toString(),
+          purpose: InstallationEnrollmentPurpose.RECOVERY,
+        },
+        ACTOR,
+      ),
     ).resolves.toBeDefined();
   });
 
@@ -130,10 +193,13 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     installations.set(installation.id.toString(), installation);
 
     await expect(
-      useCase.execute({
-        installationId: installation.id.toString(),
-        purpose: InstallationEnrollmentPurpose.RECOVERY,
-      }),
+      useCase.execute(
+        {
+          installationId: installation.id.toString(),
+          purpose: InstallationEnrollmentPurpose.RECOVERY,
+        },
+        ACTOR,
+      ),
     ).rejects.toThrow(InstallationNotEligibleForEnrollmentError);
   });
 
@@ -143,10 +209,13 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     installations.set(installation.id.toString(), installation);
 
     await expect(
-      useCase.execute({
-        installationId: installation.id.toString(),
-        purpose: InstallationEnrollmentPurpose.RECOVERY,
-      }),
+      useCase.execute(
+        {
+          installationId: installation.id.toString(),
+          purpose: InstallationEnrollmentPurpose.RECOVERY,
+        },
+        ACTOR,
+      ),
     ).rejects.toThrow(InstallationNotEligibleForEnrollmentError);
   });
 
@@ -155,14 +224,20 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     const installation = buildInstallation(InstallationStatus.PENDING);
     installations.set(installation.id.toString(), installation);
 
-    const first = await useCase.execute({
-      installationId: installation.id.toString(),
-      purpose: InstallationEnrollmentPurpose.INITIAL,
-    });
-    const second = await useCase.execute({
-      installationId: installation.id.toString(),
-      purpose: InstallationEnrollmentPurpose.INITIAL,
-    });
+    const first = await useCase.execute(
+      {
+        installationId: installation.id.toString(),
+        purpose: InstallationEnrollmentPurpose.INITIAL,
+      },
+      ACTOR,
+    );
+    const second = await useCase.execute(
+      {
+        installationId: installation.id.toString(),
+        purpose: InstallationEnrollmentPurpose.INITIAL,
+      },
+      ACTOR,
+    );
 
     expect(first.enrollmentCode).not.toBe(second.enrollmentCode);
     expect(enrollments.size).toBe(2);
@@ -181,10 +256,13 @@ describe("IssueInstallationEnrollmentUseCase", () => {
     const installation = buildInstallation(InstallationStatus.PENDING);
     installations.set(installation.id.toString(), installation);
 
-    const result = await useCase.execute({
-      installationId: installation.id.toString(),
-      purpose: InstallationEnrollmentPurpose.INITIAL,
-    });
+    const result = await useCase.execute(
+      {
+        installationId: installation.id.toString(),
+        purpose: InstallationEnrollmentPurpose.INITIAL,
+      },
+      ACTOR,
+    );
 
     expect(result.expiresAt.getTime() - BASE_TIME.getTime()).toBe(60_000);
   });

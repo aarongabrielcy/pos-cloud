@@ -214,9 +214,10 @@ tenant-facing/customer-employee/POS-operator roles, Redis permission caching, AB
 external IdP, audit event persistence, frontend (`pos-cloud-web` does not start yet - the gate is
 still CLOUD-01C-B/C/D).
 
-## Audit integration points (for CLOUD-01C-D)
+## Audit integration points
 
-Not implemented now, only identified: role assignment (`AssignRoleToAdminUseCase`) and role removal
-(when it exists) are the actions that should emit an audit event once CLOUD-01C-D adds an audit
-store. No code changes were made in anticipation of this beyond the use case already being a single,
-well-defined seam to hook into later.
+CLOUD-01C-D added the audit store (`audit.audit_events`, `AuditRecorderPort`) - see
+[audit.md](./audit.md). Role assignment (`AssignRoleToAdminUseCase`) was **not** wired to it:
+its only current caller is the bootstrap script, which runs before any normal admin/actor context
+exists - see [audit.md's action catalog](./audit.md#action-catalog-v1---10-codes) for why. Will be
+audited once real AdminUser/Role administration ships with a genuine HTTP-driven admin actor.

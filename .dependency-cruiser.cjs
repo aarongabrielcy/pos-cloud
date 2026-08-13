@@ -79,7 +79,7 @@ module.exports = {
       comment:
         "Bounded contexts never import each other directly - only apps/api (the composition root) may depend on more than one context's public API, wiring the cross-context ports. Workspace package imports resolve to their real source path (pnpm symlinks are realpath-resolved), e.g. libs/control-plane/licensing/dist/index.js - not a node_modules/@pos-cloud/... path. access-management is exempt from this list (see access-management-cannot-import-other-bounded-contexts below) - CLOUD-01C-B's RBAC catalog/decorators are a one-directional platform dependency, not a peer bounded context relationship.",
       from: { path: "^libs/control-plane/customer-management" },
-      to: { path: "^libs/control-plane/(licensing|installations)" },
+      to: { path: "^libs/control-plane/(licensing|installations|audit)" },
     },
     {
       name: "licensing-cannot-import-other-bounded-contexts",
@@ -87,7 +87,7 @@ module.exports = {
       comment:
         "Bounded contexts never import each other directly - only apps/api (the composition root) may depend on more than one context's public API, wiring the cross-context ports. access-management is exempt - see access-management-cannot-import-other-bounded-contexts below.",
       from: { path: "^libs/control-plane/licensing" },
-      to: { path: "^libs/control-plane/(customer-management|installations)" },
+      to: { path: "^libs/control-plane/(customer-management|installations|audit)" },
     },
     {
       name: "installations-cannot-import-other-bounded-contexts",
@@ -95,14 +95,22 @@ module.exports = {
       comment:
         "Bounded contexts never import each other directly - only apps/api (the composition root) may depend on more than one context's public API, wiring the cross-context ports. access-management is exempt - see access-management-cannot-import-other-bounded-contexts below.",
       from: { path: "^libs/control-plane/installations" },
-      to: { path: "^libs/control-plane/(customer-management|licensing)" },
+      to: { path: "^libs/control-plane/(customer-management|licensing|audit)" },
     },
     {
       name: "access-management-cannot-import-other-bounded-contexts",
       severity: "error",
       comment:
-        "access-management never imports customer-management/licensing/installations - it stays fully ignorant of every other bounded context's domain (see docs/architecture/admin-rbac.md#cross-context). The reverse direction (those three importing access-management's PERMISSIONS/RequirePermissions/Public/AuthenticatedOnly/AdminAuthorizationGuard) is deliberately allowed and not a peer bounded-context relationship: RBAC is a one-directional platform capability every business context depends on, the same way everything depends on shared-kernel - see CLOUD-01C-B's brief.",
+        "access-management never imports customer-management/licensing/installations/audit - it stays fully ignorant of every other bounded context's domain (see docs/architecture/admin-rbac.md#cross-context). The reverse direction (those contexts importing access-management's PERMISSIONS/RequirePermissions/Public/AuthenticatedOnly/AdminAuthorizationGuard) is deliberately allowed and not a peer bounded-context relationship: RBAC is a one-directional platform capability every business context depends on, the same way everything depends on shared-kernel - see CLOUD-01C-B's brief.",
       from: { path: "^libs/control-plane/access-management" },
+      to: { path: "^libs/control-plane/(customer-management|licensing|installations|audit)" },
+    },
+    {
+      name: "audit-cannot-import-other-bounded-contexts",
+      severity: "error",
+      comment:
+        "The audit bounded context is a write sink every producer context calls into via AuditRecorderPort (defined in shared-kernel) - it must never import customer-management/licensing/installations' internals to stay a one-directional dependency, the same shape as the other contexts' own rules. access-management is exempt (RBAC), same reasoning as the others - see CLOUD-01C-D.",
+      from: { path: "^libs/control-plane/audit" },
       to: { path: "^libs/control-plane/(customer-management|licensing|installations)" },
     },
     {

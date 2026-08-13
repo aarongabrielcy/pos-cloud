@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
+import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FakeCustomerReader, FakeLicenseReader } from "../../test-support/fake-readers";
 import { FixedClock } from "../../test-support/fixed-clock";
 import { InMemoryInstallationRepository } from "../../test-support/in-memory-installation-repository";
@@ -13,22 +15,30 @@ import {
   LicenseNotUsableError,
 } from "../../domain/installation.errors";
 import { Platform } from "../../domain/platform";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import { CreateInstallationUseCase } from "./create-installation.use-case";
 
 const clock = new FixedClock(new Date("2026-01-01T00:00:00.000Z"));
+const ACTOR: AuditActorContext = {
+  actorType: "ADMIN",
+  actorId: "admin-1",
+  correlationId: "correlation-1",
+};
 
 function setup() {
   const repository = new InMemoryInstallationRepository();
   const customerReader = new FakeCustomerReader();
   const licenseReader = new FakeLicenseReader();
+  const auditRecorder = new FakeAuditRecorder();
   const useCase = new CreateInstallationUseCase(
     repository,
     customerReader,
     licenseReader,
     clock,
     new RandomUuidGenerator(),
+    auditRecorder,
   );
-  return { repository, customerReader, licenseReader, useCase };
+  return { repository, customerReader, licenseReader, useCase, auditRecorder };
 }
 
 function baseCommand(overrides: { customerId: string; licenseId: string }) {
@@ -47,7 +57,7 @@ describe("CreateInstallationUseCase", () => {
     const customerId = randomUUID();
     const licenseId = randomUUID();
 
-    await expect(useCase.execute(baseCommand({ customerId, licenseId }))).rejects.toThrow(
+    await expect(useCase.execute(baseCommand({ customerId, licenseId }), ACTOR)).rejects.toThrow(
       InstallationCustomerNotFoundError,
     );
   });
@@ -58,7 +68,7 @@ describe("CreateInstallationUseCase", () => {
     const licenseId = randomUUID();
     customerReader.register({ id: customerId, active: false });
 
-    await expect(useCase.execute(baseCommand({ customerId, licenseId }))).rejects.toThrow(
+    await expect(useCase.execute(baseCommand({ customerId, licenseId }), ACTOR)).rejects.toThrow(
       InstallationCustomerNotActiveError,
     );
   });
@@ -69,7 +79,7 @@ describe("CreateInstallationUseCase", () => {
     const licenseId = randomUUID();
     customerReader.register({ id: customerId, active: true });
 
-    await expect(useCase.execute(baseCommand({ customerId, licenseId }))).rejects.toThrow(
+    await expect(useCase.execute(baseCommand({ customerId, licenseId }), ACTOR)).rejects.toThrow(
       InstallationLicenseNotFoundError,
     );
   });
@@ -86,7 +96,7 @@ describe("CreateInstallationUseCase", () => {
       usable: true,
     });
 
-    await expect(useCase.execute(baseCommand({ customerId, licenseId }))).rejects.toThrow(
+    await expect(useCase.execute(baseCommand({ customerId, licenseId }), ACTOR)).rejects.toThrow(
       LicenseCustomerMismatchError,
     );
   });
@@ -98,7 +108,7 @@ describe("CreateInstallationUseCase", () => {
     customerReader.register({ id: customerId, active: true });
     licenseReader.register({ id: licenseId, customerId, maxInstallations: 5, usable: false });
 
-    await expect(useCase.execute(baseCommand({ customerId, licenseId }))).rejects.toThrow(
+    await expect(useCase.execute(baseCommand({ customerId, licenseId }), ACTOR)).rejects.toThrow(
       LicenseNotUsableError,
     );
   });
@@ -109,14 +119,14 @@ describe("CreateInstallationUseCase", () => {
     const licenseId = randomUUID();
     customerReader.register({ id: customerId, active: true });
     licenseReader.register({ id: licenseId, customerId, maxInstallations: 1, usable: true });
-    await useCase.execute(baseCommand({ customerId, licenseId }));
+    await useCase.execute(baseCommand({ customerId, licenseId }), ACTOR);
     expect(await repository.countNonDecommissionedByLicense(licenseId)).toBe(1);
 
     await expect(
-      useCase.execute({
-        ...baseCommand({ customerId, licenseId }),
-        installationCode: "POS-GST-00002",
-      }),
+      useCase.execute(
+        { ...baseCommand({ customerId, licenseId }), installationCode: "POS-GST-00002" },
+        ACTOR,
+      ),
     ).rejects.toThrow(LicenseCapacityExceededError);
   });
 
@@ -127,7 +137,7 @@ describe("CreateInstallationUseCase", () => {
     customerReader.register({ id: customerId, active: true });
     licenseReader.register({ id: licenseId, customerId, maxInstallations: 2, usable: true });
 
-    const installation = await useCase.execute(baseCommand({ customerId, licenseId }));
+    const installation = await useCase.execute(baseCommand({ customerId, licenseId }), ACTOR);
 
     expect(installation.status).toBe("PENDING");
     expect(installation.registeredAt).toBeNull();
@@ -139,10 +149,30 @@ describe("CreateInstallationUseCase", () => {
     const licenseId = randomUUID();
     customerReader.register({ id: customerId, active: true });
     licenseReader.register({ id: licenseId, customerId, maxInstallations: 5, usable: true });
-    await useCase.execute(baseCommand({ customerId, licenseId }));
+    await useCase.execute(baseCommand({ customerId, licenseId }), ACTOR);
 
-    await expect(useCase.execute(baseCommand({ customerId, licenseId }))).rejects.toThrow(
+    await expect(useCase.execute(baseCommand({ customerId, licenseId }), ACTOR)).rejects.toThrow(
       InstallationCodeAlreadyExistsError,
     );
+  });
+
+  it("records an audit event after the Installation is persisted", async () => {
+    const { useCase, customerReader, licenseReader, auditRecorder } = setup();
+    const customerId = randomUUID();
+    const licenseId = randomUUID();
+    customerReader.register({ id: customerId, active: true });
+    licenseReader.register({ id: licenseId, customerId, maxInstallations: 2, usable: true });
+
+    const installation = await useCase.execute(baseCommand({ customerId, licenseId }), ACTOR);
+
+    expect(auditRecorder.recorded).toEqual([
+      {
+        actor: ACTOR,
+        action: INSTALLATION_AUDIT_ACTIONS.CREATED,
+        resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+        resourceId: installation.id.toString(),
+        metadata: {},
+      },
+    ]);
   });
 });

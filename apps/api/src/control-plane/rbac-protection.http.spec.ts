@@ -21,6 +21,7 @@ import {
   CreateInstallationUseCase,
   EnrollInstallationUseCase,
   GetInstallationByIdUseCase,
+  GetInstallationHealthUseCase,
   InstallationsModule,
   IssueInstallationEnrollmentUseCase,
   ListInstallationsUseCase,
@@ -34,6 +35,7 @@ import {
   ListLicensesUseCase,
   ReplaceLicenseEntitlementsUseCase,
 } from "@pos-cloud/licensing";
+import { AuditModule, ListAuditEventsUseCase } from "@pos-cloud/audit";
 import request from "supertest";
 import { fakeCustomer, fakeInstallation, fakeLicense } from "../test-support/fixtures";
 import { createHttpTestModuleBuilder, initHttpTestApp } from "../test-support/http-test-app";
@@ -100,6 +102,7 @@ describe("RBAC Control Plane protection (HTTP)", () => {
   let changeInstallationStatusUseCase: { execute: jest.Mock };
   let issueInstallationEnrollmentUseCase: { execute: jest.Mock };
   let revokeInstallationCredentialUseCase: { execute: jest.Mock };
+  let listAuditEventsUseCase: { execute: jest.Mock };
 
   function grant(adminUserId: string, ...codes: PermissionCode[]): void {
     resolveEffectivePermissions.mockImplementation((id: string) =>
@@ -115,6 +118,7 @@ describe("RBAC Control Plane protection (HTTP)", () => {
     changeInstallationStatusUseCase = { execute: jest.fn() };
     issueInstallationEnrollmentUseCase = { execute: jest.fn() };
     revokeInstallationCredentialUseCase = { execute: jest.fn() };
+    listAuditEventsUseCase = { execute: jest.fn() };
 
     const moduleBuilder = createHttpTestModuleBuilder([
       TestAuthConfigModule,
@@ -123,6 +127,7 @@ describe("RBAC Control Plane protection (HTTP)", () => {
       CustomerManagementModule,
       LicensingModule,
       InstallationsModule,
+      AuditModule,
     ])
       .overrideProvider(PERMISSION_RESOLVER)
       .useValue({ resolveEffectivePermissions })
@@ -162,7 +167,11 @@ describe("RBAC Control Plane protection (HTTP)", () => {
       .overrideProvider(RevokeInstallationCredentialUseCase)
       .useValue(revokeInstallationCredentialUseCase)
       .overrideProvider(EnrollInstallationUseCase)
-      .useValue({ execute: jest.fn() });
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(GetInstallationHealthUseCase)
+      .useValue({ execute: jest.fn() })
+      .overrideProvider(ListAuditEventsUseCase)
+      .useValue(listAuditEventsUseCase);
 
     app = await initHttpTestApp(moduleBuilder);
   });
@@ -412,6 +421,56 @@ describe("RBAC Control Plane protection (HTTP)", () => {
         .set("Authorization", `Bearer ${token}`);
 
       expect(response.status).toBe(201);
+    });
+  });
+
+  describe("audit.read - CLOUD-01C-D", () => {
+    it("PLATFORM_VIEWER's read-only permissions do not include audit.read - forbidden", async () => {
+      const token = await signAccessToken("admin-viewer-audit");
+      grant("admin-viewer-audit", "customers.read", "licenses.read", "installations.read");
+
+      const response = await request(app.getHttpServer())
+        .get("/api/v1/control-plane/audit-events")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(403);
+      expect(listAuditEventsUseCase.execute).not.toHaveBeenCalled();
+    });
+
+    it("PLATFORM_OPERATOR can read audit events", async () => {
+      const token = await signAccessToken("admin-operator-audit");
+      grant("admin-operator-audit", "audit.read");
+      listAuditEventsUseCase.execute.mockResolvedValue({
+        items: [],
+        page: 1,
+        pageSize: 25,
+        total: 0,
+        totalPages: 0,
+      });
+
+      const response = await request(app.getHttpServer())
+        .get("/api/v1/control-plane/audit-events")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("PLATFORM_ADMIN can read audit events", async () => {
+      const token = await signAccessToken("admin-platform-admin-audit");
+      grant("admin-platform-admin-audit", "audit.read");
+      listAuditEventsUseCase.execute.mockResolvedValue({
+        items: [],
+        page: 1,
+        pageSize: 25,
+        total: 0,
+        totalPages: 0,
+      });
+
+      const response = await request(app.getHttpServer())
+        .get("/api/v1/control-plane/audit-events")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
     });
   });
 

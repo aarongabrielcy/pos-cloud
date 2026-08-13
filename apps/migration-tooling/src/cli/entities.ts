@@ -6,10 +6,12 @@ import {
   PermissionRecord,
   RolePermissionRecord,
 } from "@pos-cloud/access-management/dist/persistence-entities";
+import { AuditEventRecord } from "@pos-cloud/audit/dist/persistence-entities";
 import { CustomerRecord } from "@pos-cloud/customer-management/dist/persistence-entities";
 import {
   InstallationCredentialRecord,
   InstallationEnrollmentRecord,
+  InstallationHealthRecord,
   InstallationRecord,
 } from "@pos-cloud/installations/dist/persistence-entities";
 import {
@@ -34,10 +36,12 @@ export const controlPlaneEntities = [
   InstallationRecord,
   InstallationEnrollmentRecord,
   InstallationCredentialRecord,
+  InstallationHealthRecord,
   AdminUserRecord,
   AdminSessionRecord,
   AdminUserRoleRecord,
   PermissionRecord,
   AdminRoleRecord,
   RolePermissionRecord,
+  AuditEventRecord,
 ];

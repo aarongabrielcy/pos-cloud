@@ -1,6 +1,15 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { INSTALLATION_AUTH_CONFIG, type InstallationAuthConfig } from "@pos-cloud/config";
-import { CLOCK, type Clock, ID_GENERATOR, type IdGenerator } from "@pos-cloud/shared-kernel";
+import {
+  AUDIT_RECORDER_PORT,
+  type AuditActorContext,
+  type AuditRecorderPort,
+  CLOCK,
+  type Clock,
+  ID_GENERATOR,
+  type IdGenerator,
+} from "@pos-cloud/shared-kernel";
+import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "../audit-actions";
 import { formatOpaqueToken } from "../opaque-token-format";
 import {
   INSTALLATION_ENROLLMENT_ISSUANCE_UNIT_OF_WORK,
@@ -53,12 +62,14 @@ export class IssueInstallationEnrollmentUseCase {
     @Inject(ID_GENERATOR) private readonly idGenerator: IdGenerator,
     @Inject(INSTALLATION_AUTH_CONFIG)
     private readonly installationAuthConfig: InstallationAuthConfig,
+    @Inject(AUDIT_RECORDER_PORT) private readonly auditRecorder: AuditRecorderPort,
   ) {}
 
   async execute(
     command: IssueInstallationEnrollmentCommand,
+    actor: AuditActorContext,
   ): Promise<IssueInstallationEnrollmentResult> {
-    return this.unitOfWork.runExclusive(command.installationId, async (ctx) => {
+    const result = await this.unitOfWork.runExclusive(command.installationId, async (ctx) => {
       const installation = await ctx.findInstallationForUpdate(command.installationId);
       if (!installation) {
         throw new InstallationNotFoundError(command.installationId);
@@ -99,5 +110,18 @@ export class IssueInstallationEnrollmentUseCase {
         expiresAt: enrollment.expiresAt,
       };
     });
+
+    // Recorded only after the transaction has committed (runExclusive resolved) - never for a
+    // rolled-back attempt (e.g. InstallationNotEligibleForEnrollmentError, thrown from inside the
+    // callback, propagates out of runExclusive before this line is ever reached).
+    await this.auditRecorder.record({
+      actor,
+      action: INSTALLATION_AUDIT_ACTIONS.ENROLLMENT_ISSUED,
+      resourceType: INSTALLATION_AUDIT_RESOURCE_TYPE,
+      resourceId: command.installationId,
+      metadata: { purpose: command.purpose },
+    });
+
+    return result;
   }
 }

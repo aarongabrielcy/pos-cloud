@@ -113,7 +113,10 @@ versioned.
   permission the request needs (see [admin-rbac.md](./admin-rbac.md)) - only login/refresh/logout
   and health remain reachable without one. Since CLOUD-01C-C, `/installation-auth/*` is a second,
   completely independent identity plane for POS machines - never an admin JWT, never RBAC (see
-  [installation-enrollment.md](./installation-enrollment.md)).
+  [installation-enrollment.md](./installation-enrollment.md)). Since CLOUD-01C-D,
+  `/installation-health/heartbeat` reuses that same machine identity plane, and every real admin/
+  machine action across the Control Plane is recorded in an append-only audit log (see
+  [installation-health.md](./installation-health.md) and [audit.md](./audit.md)).
 - **apps/worker**: NestJS application-context process (no HTTP port). Boots configuration,
   logging, PostgreSQL and Redis connections, and stays alive on those open connections. Exposes a
   standalone `dist/healthcheck.js` script (no NestJS bootstrap) for Docker `HEALTHCHECK`, since

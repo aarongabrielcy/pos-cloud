@@ -1,4 +1,11 @@
-import type { INestApplication } from "@nestjs/common";
+import {
+  type CanActivate,
+  type ExecutionContext,
+  Injectable,
+  type INestApplication,
+  Module,
+} from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
 import {
   ChangeLicenseStatusUseCase,
   CreateLicenseUseCase,
@@ -17,6 +24,25 @@ import request from "supertest";
 import { fakeLicense } from "../test-support/fixtures";
 import { createHttpTestModuleBuilder, initHttpTestApp } from "../test-support/http-test-app";
 
+const STUB_ADMIN_ID = "test-admin-id";
+
+/**
+ * This file tests License HTTP/business behavior, not admin authentication/RBAC (that's
+ * rbac-protection.http.spec.ts) - see customers.http.spec.ts's identical StubCurrentAdminGuard for
+ * the full rationale.
+ */
+@Injectable()
+class StubCurrentAdminGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    request.currentAdmin = { adminUserId: STUB_ADMIN_ID, sessionId: "test-session-id" };
+    return true;
+  }
+}
+
+@Module({ providers: [{ provide: APP_GUARD, useClass: StubCurrentAdminGuard }] })
+class StubCurrentAdminModule {}
+
 describe("Licenses HTTP contract", () => {
   let app: INestApplication;
   let createLicenseUseCase: { execute: jest.Mock };
@@ -32,7 +58,7 @@ describe("Licenses HTTP contract", () => {
     changeLicenseStatusUseCase = { execute: jest.fn() };
     replaceLicenseEntitlementsUseCase = { execute: jest.fn() };
 
-    const moduleBuilder = createHttpTestModuleBuilder([LicensingModule])
+    const moduleBuilder = createHttpTestModuleBuilder([StubCurrentAdminModule, LicensingModule])
       .overrideProvider(CreateLicenseUseCase)
       .useValue(createLicenseUseCase)
       .overrideProvider(GetLicenseByIdUseCase)
@@ -376,6 +402,7 @@ describe("Licenses HTTP contract", () => {
             expect.objectContaining({ code: "integrated_payments" }),
           ]),
         }),
+        { actorType: "ADMIN", actorId: STUB_ADMIN_ID, correlationId: expect.any(String) },
       );
     });
 

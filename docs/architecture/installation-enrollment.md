@@ -252,7 +252,11 @@ Redis, installation JWT, mTLS/PKI, frontend, mobile, desktop sync, rate limiting
 `/installation-auth/enroll` (entropy alone already makes brute force infeasible within the enrollment
 TTL; a backlog defense-in-depth item, not a gap).
 
-## Audit integration points (for CLOUD-01C-D)
+## Audit integration points
 
-Future events, not persisted yet: enrollment issued, enrollment consumed, credential revoked, credential
-rotated, installation activated, installation suspended.
+CLOUD-01C-D added the audit store and wired it here - see [audit.md](./audit.md#action-catalog-v1---10-codes):
+`installation.enrollment.issued`, `installation.enrollment.consumed` (actor `INSTALLATION`, not
+`ADMIN` - the machine resolved its own identity via the enrollment code), `installation.credential.revoked`,
+`installation.created`, `installation.status.changed`. Credential rotation was not added - periodic/
+automatic rotation remains this document's own non-goal (see above); recovery-enrollment is covered
+by `installation.enrollment.issued`'s `purpose: "RECOVERY"` metadata.
