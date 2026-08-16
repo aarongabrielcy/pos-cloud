@@ -13,7 +13,7 @@ export class CreateInstallationRequestDto {
 
   @ApiProperty({
     example: "POS-GST-00001",
-    description: "3-80 chars, normalized to ^[A-Z0-9][A-Z0-9_-]{4,79}$",
+    description: "5-80 chars, normalized to ^[A-Z0-9][A-Z0-9_-]{4,79}$",
   })
   @IsString()
   @Length(1, 80)

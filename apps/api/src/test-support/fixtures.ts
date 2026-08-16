@@ -39,6 +39,42 @@ export function fakeCustomer(
   } as unknown as Customer;
 }
 
+/** Plain display-summary shape (CustomerDisplaySummary) - NOT a real Customer domain object, since
+ *  GetCustomerSummariesUseCase's mocked `.execute()` resolves to a `Map<string, ...>` of exactly
+ *  this shape, never a Customer. */
+export function fakeCustomerSummary(
+  overrides: Partial<{
+    id: string;
+    code: string;
+    legalName: string;
+    tradeName: string | null;
+  }> = {},
+): { id: string; code: string; legalName: string; tradeName: string | null } {
+  return {
+    id: overrides.id ?? "11111111-1111-4111-8111-111111111111",
+    code: overrides.code ?? "GST-MX",
+    legalName: overrides.legalName ?? "GS Trackme S.A. de C.V.",
+    tradeName: overrides.tradeName === undefined ? "GS Trackme" : overrides.tradeName,
+  };
+}
+
+/** Same reasoning as fakeCustomerSummary - LicenseDisplaySummary, not a real License domain object. */
+export function fakeLicenseSummary(
+  overrides: Partial<{
+    id: string;
+    licenseNumber: string;
+    edition: string;
+    status: string;
+  }> = {},
+): { id: string; licenseNumber: string; edition: string; status: string } {
+  return {
+    id: overrides.id ?? "22222222-2222-4222-8222-222222222222",
+    licenseNumber: overrides.licenseNumber ?? "LIC-GST-00001",
+    edition: overrides.edition ?? "BASIC",
+    status: overrides.status ?? "ACTIVE",
+  };
+}
+
 export function fakeEntitlement(
   overrides: Partial<{
     id: string;

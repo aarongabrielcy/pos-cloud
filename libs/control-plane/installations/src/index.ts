@@ -27,6 +27,8 @@ export type { RecordInstallationHeartbeatCommand } from "./application/use-cases
 export { GetInstallationHealthUseCase } from "./application/use-cases/get-installation-health.use-case";
 export type { InstallationHealthDetail } from "./application/use-cases/get-installation-health.use-case";
 export type { InstallationListItemWithHealth } from "./application/use-cases/list-installations.use-case";
+export { GetCustomerSummariesUseCase } from "./application/use-cases/get-customer-summaries.use-case";
+export { GetLicenseSummariesUseCase } from "./application/use-cases/get-license-summaries.use-case";
 
 export {
   CUSTOMER_READER_PORT,
@@ -38,6 +40,16 @@ export {
   type LicenseReaderPort,
   type LicenseSummary,
 } from "./application/ports/license-reader.port";
+export {
+  CUSTOMER_SUMMARY_READER_PORT,
+  type CustomerSummaryReaderPort,
+  type CustomerDisplaySummary,
+} from "./application/ports/customer-summary-reader.port";
+export {
+  LICENSE_SUMMARY_READER_PORT,
+  type LicenseSummaryReaderPort,
+  type LicenseDisplaySummary,
+} from "./application/ports/license-summary-reader.port";
 
 export type { Installation } from "./domain/installation";
 export { InstallationStatus } from "./domain/installation-status";

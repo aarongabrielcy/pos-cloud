@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { PaginatedResult } from "@pos-cloud/shared-kernel";
 import { buildPaginatedResult } from "@pos-cloud/shared-kernel";
-import type { Repository } from "typeorm";
+import { In, type Repository } from "typeorm";
 import { Customer } from "../../domain/customer";
 import type { CustomerCode } from "../../domain/customer-code";
 import type { CustomerId } from "../../domain/customer-id";
@@ -41,6 +41,14 @@ export class TypeOrmCustomerRepository implements CustomerRepository {
       }
       throw error;
     }
+  }
+
+  async findByIds(ids: readonly string[]): Promise<Customer[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const records = await this.repository.find({ where: { id: In([...ids]) } });
+    return records.map(CustomerMapper.toDomain);
   }
 
   async list(criteria: ListCustomersCriteria): Promise<PaginatedResult<Customer>> {

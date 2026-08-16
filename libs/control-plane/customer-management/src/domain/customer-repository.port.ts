@@ -15,6 +15,11 @@ export interface CustomerRepository {
   findByCode(code: CustomerCode): Promise<Customer | null>;
   save(customer: Customer): Promise<void>;
   list(criteria: ListCustomersCriteria): Promise<PaginatedResult<Customer>>;
+  /** Batched lookup for read-model/display-summary purposes (e.g. Licensing/Installations
+   *  attaching a Customer display summary to their own responses) - a single query for the whole
+   *  set of ids, never one call per id. Order is not guaranteed; ids with no matching row are
+   *  simply absent from the result, never null-padded. */
+  findByIds(ids: readonly string[]): Promise<Customer[]>;
 }
 
 export const CUSTOMER_REPOSITORY = Symbol("CUSTOMER_REPOSITORY");

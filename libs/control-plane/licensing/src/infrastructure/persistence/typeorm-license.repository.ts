@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import type { PaginatedResult } from "@pos-cloud/shared-kernel";
 import { buildPaginatedResult } from "@pos-cloud/shared-kernel";
-import type { Repository } from "typeorm";
+import { In, type Repository } from "typeorm";
 import { License } from "../../domain/license";
 import type { LicenseId } from "../../domain/license-id";
 import type { LicenseNumber } from "../../domain/license-number";
@@ -73,6 +73,15 @@ export class TypeOrmLicenseRepository implements LicenseRepository {
       }
       await manager.save(LicenseRecord, LicenseMapper.toRecord(license));
     });
+  }
+
+  /** Batched, entitlement-free read - same "list views omit entitlements" principle as list(). */
+  async findByIds(ids: readonly string[]): Promise<License[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    const records = await this.licenseRepo.find({ where: { id: In([...ids]) } });
+    return records.map((record) => LicenseMapper.toDomain(record));
   }
 
   /** List views intentionally omit entitlements (heavy, jsonb configuration) - see docs. */

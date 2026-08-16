@@ -26,6 +26,10 @@ export class InMemoryCustomerRepository implements CustomerRepository {
     this.byId.set(customer.id.toString(), customer);
   }
 
+  async findByIds(ids: readonly string[]): Promise<Customer[]> {
+    return ids.map((id) => this.byId.get(id)).filter((c): c is Customer => c !== undefined);
+  }
+
   async list(criteria: ListCustomersCriteria): Promise<PaginatedResult<Customer>> {
     let items = [...this.byId.values()];
 

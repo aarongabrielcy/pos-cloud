@@ -24,6 +24,11 @@ export interface LicenseRepository {
    * within one transaction), after `license.replaceEntitlements(...)` has already computed it.
    */
   replaceEntitlements(license: License): Promise<void>;
+  /** Batched lookup for read-model/display-summary purposes (e.g. Installations attaching a
+   *  License display summary to its own responses) - a single query for the whole set of ids,
+   *  never one call per id. Entitlements are intentionally omitted, same as list() - see that
+   *  method's own comment. Order is not guaranteed; ids with no matching row are simply absent. */
+  findByIds(ids: readonly string[]): Promise<License[]>;
 }
 
 export const LICENSE_REPOSITORY = Symbol("LICENSE_REPOSITORY");

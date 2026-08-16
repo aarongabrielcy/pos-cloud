@@ -468,11 +468,19 @@ Docker Compose itself is not part of this repository - see
   status; `POST /installation-health/heartbeat` on the same machine identity plane; a new **Audit**
   bounded context (`audit.read`) recording every real admin/machine action, best-effort, append-only.
   Migrations applied.
-- **BACKEND-HARDENING-01** (this state) - OpenAPI response contract completeness (every current
+- **BACKEND-HARDENING-01** - OpenAPI response contract completeness (every current
   operation's success response now has a real, decorator-wired schema - see
   [ADR-016](docs/adr/ADR-016-openapi-response-contract-and-effective-permissions.md)) and effective
   permissions exposed on `GET /auth/me` (`permissions: string[]`, sorted, resolved via
   `PermissionResolverPort`) - unblocks `pos-cloud-web`'s WEB-01A. No migrations.
+- **BACKEND-HARDENING-02** (this state) - Control plane relation display summaries (License/
+  Installation admin responses now carry a `customer`/`license` human-facing summary alongside the
+  existing machine `customerId`/`licenseId`, via new narrow batched cross-context read ports - no
+  N+1, existing IDs unchanged) and the `maxInstallations` concurrent-create race fix (a
+  transaction-scoped Postgres advisory lock keyed on `licenseId`, proven with a real concurrent-request
+  test, not just a sequential one) - unblocks `pos-cloud-web` rendering Customer/License identity
+  without N+1 requests and closes the last confirmed Payment Terminal prerequisite around Installation
+  capacity. No migrations.
 - **CLOUD-02** - Payment Orchestrator Core
 - **CLOUD-03** - Mercado Pago Adapter (behind the Ports/Adapters boundary from
   [ADR-008](docs/adr/ADR-008-provider-integrations-behind-ports-and-adapters.md))
@@ -481,17 +489,18 @@ Docker Compose itself is not part of this repository - see
 
 Reviewed and prioritized before any new backend feature work begins:
 
-| Item                                                                                                         | Status                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| OpenAPI response contract completeness                                                                       | **RESOLVED** (BACKEND-HARDENING-01)                                                                                                                                                        |
-| `/auth/me` effective permissions                                                                             | **RESOLVED** (BACKEND-HARDENING-01)                                                                                                                                                        |
-| CORS for `pos-cloud-web`                                                                                     | **CLOSED - NOT REQUIRED** under the frontend's same-origin topology (Vite dev proxy / production reverse proxy). Reopen only if frontend and API are ever deployed genuinely cross-origin. |
-| `maxInstallations` concurrent-create race (`CreateInstallationUseCase`)                                      | Open                                                                                                                                                                                       |
-| Heartbeat rate limiting                                                                                      | Open                                                                                                                                                                                       |
-| Audit retention/archival policy                                                                              | Open                                                                                                                                                                                       |
-| DB-level audit immutability (`REVOKE UPDATE, DELETE` on `audit_events`)                                      | Open                                                                                                                                                                                       |
-| Outbox-backed audit delivery                                                                                 | Open                                                                                                                                                                                       |
-| Admin login/security-event auditing (login success/failure/lockout/refresh replay)                           | Open                                                                                                                                                                                       |
-| Future Admin `SUSPENDED` session revocation semantics (no admin-management feature exists yet to trigger it) | Open                                                                                                                                                                                       |
-| Periodic Installation credential rotation                                                                    | Open                                                                                                                                                                                       |
-| Worker-based offline-transition detection (if ever required)                                                 | Open                                                                                                                                                                                       |
+| Item                                                                                                         | Status                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| OpenAPI response contract completeness                                                                       | **RESOLVED** (BACKEND-HARDENING-01)                                                                                                                                                              |
+| `/auth/me` effective permissions                                                                             | **RESOLVED** (BACKEND-HARDENING-01)                                                                                                                                                              |
+| CORS for `pos-cloud-web`                                                                                     | **CLOSED - NOT REQUIRED** under the frontend's same-origin topology (Vite dev proxy / production reverse proxy). Reopen only if frontend and API are ever deployed genuinely cross-origin.       |
+| `maxInstallations` concurrent-create race (`CreateInstallationUseCase`)                                      | **RESOLVED** (BACKEND-HARDENING-02) - Postgres advisory lock keyed on `licenseId`, proven with a real concurrent-request test (`typeorm-installation-creation-unit-of-work.concurrency.spec.ts`) |
+| Control plane relation display summaries (License/Installation exposing only raw `customerId`/`licenseId`)   | **RESOLVED** (BACKEND-HARDENING-02)                                                                                                                                                              |
+| Heartbeat rate limiting                                                                                      | Open                                                                                                                                                                                             |
+| Audit retention/archival policy                                                                              | Open                                                                                                                                                                                             |
+| DB-level audit immutability (`REVOKE UPDATE, DELETE` on `audit_events`)                                      | Open                                                                                                                                                                                             |
+| Outbox-backed audit delivery                                                                                 | Open                                                                                                                                                                                             |
+| Admin login/security-event auditing (login success/failure/lockout/refresh replay)                           | Open                                                                                                                                                                                             |
+| Future Admin `SUSPENDED` session revocation semantics (no admin-management feature exists yet to trigger it) | Open                                                                                                                                                                                             |
+| Periodic Installation credential rotation                                                                    | Open                                                                                                                                                                                             |
+| Worker-based offline-transition detection (if ever required)                                                 | Open                                                                                                                                                                                             |
