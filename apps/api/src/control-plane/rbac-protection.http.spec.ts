@@ -20,8 +20,10 @@ import {
   ChangeInstallationStatusUseCase,
   CreateInstallationUseCase,
   EnrollInstallationUseCase,
+  GetCustomerSummariesUseCase as InstallationsGetCustomerSummariesUseCase,
   GetInstallationByIdUseCase,
   GetInstallationHealthUseCase,
+  GetLicenseSummariesUseCase,
   InstallationsModule,
   IssueInstallationEnrollmentUseCase,
   ListInstallationsUseCase,
@@ -30,6 +32,7 @@ import {
 import {
   ChangeLicenseStatusUseCase,
   CreateLicenseUseCase,
+  GetCustomerSummariesUseCase as LicensingGetCustomerSummariesUseCase,
   GetLicenseByIdUseCase,
   LicensingModule,
   ListLicensesUseCase,
@@ -37,7 +40,13 @@ import {
 } from "@pos-cloud/licensing";
 import { AuditModule, ListAuditEventsUseCase } from "@pos-cloud/audit";
 import request from "supertest";
-import { fakeCustomer, fakeInstallation, fakeLicense } from "../test-support/fixtures";
+import {
+  fakeCustomer,
+  fakeCustomerSummary,
+  fakeInstallation,
+  fakeLicense,
+  fakeLicenseSummary,
+} from "../test-support/fixtures";
 import { createHttpTestModuleBuilder, initHttpTestApp } from "../test-support/http-test-app";
 
 const fakeAuthConfig: AuthConfig = {
@@ -154,6 +163,14 @@ describe("RBAC Control Plane protection (HTTP)", () => {
       .useValue({ execute: jest.fn() })
       .overrideProvider(ReplaceLicenseEntitlementsUseCase)
       .useValue(replaceLicenseEntitlementsUseCase)
+      .overrideProvider(LicensingGetCustomerSummariesUseCase)
+      .useValue({
+        execute: jest
+          .fn()
+          .mockResolvedValue(
+            new Map([["11111111-1111-4111-8111-111111111111", fakeCustomerSummary()]]),
+          ),
+      })
       .overrideProvider(CreateInstallationUseCase)
       .useValue({ execute: jest.fn() })
       .overrideProvider(GetInstallationByIdUseCase)
@@ -170,6 +187,22 @@ describe("RBAC Control Plane protection (HTTP)", () => {
       .useValue({ execute: jest.fn() })
       .overrideProvider(GetInstallationHealthUseCase)
       .useValue({ execute: jest.fn() })
+      .overrideProvider(InstallationsGetCustomerSummariesUseCase)
+      .useValue({
+        execute: jest
+          .fn()
+          .mockResolvedValue(
+            new Map([["11111111-1111-4111-8111-111111111111", fakeCustomerSummary()]]),
+          ),
+      })
+      .overrideProvider(GetLicenseSummariesUseCase)
+      .useValue({
+        execute: jest
+          .fn()
+          .mockResolvedValue(
+            new Map([["22222222-2222-4222-8222-222222222222", fakeLicenseSummary()]]),
+          ),
+      })
       .overrideProvider(ListAuditEventsUseCase)
       .useValue(listAuditEventsUseCase);
 

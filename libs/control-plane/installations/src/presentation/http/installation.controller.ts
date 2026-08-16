@@ -30,11 +30,17 @@ import type { AuditActorContext } from "@pos-cloud/shared-kernel";
 import type { Request } from "express";
 import { ChangeInstallationStatusUseCase } from "../../application/use-cases/change-installation-status.use-case";
 import { CreateInstallationUseCase } from "../../application/use-cases/create-installation.use-case";
+import { GetCustomerSummariesUseCase } from "../../application/use-cases/get-customer-summaries.use-case";
 import { GetInstallationByIdUseCase } from "../../application/use-cases/get-installation-by-id.use-case";
 import { GetInstallationHealthUseCase } from "../../application/use-cases/get-installation-health.use-case";
+import { GetLicenseSummariesUseCase } from "../../application/use-cases/get-license-summaries.use-case";
 import { IssueInstallationEnrollmentUseCase } from "../../application/use-cases/issue-installation-enrollment.use-case";
+import type { InstallationListItemWithHealth } from "../../application/use-cases/list-installations.use-case";
 import { ListInstallationsUseCase } from "../../application/use-cases/list-installations.use-case";
 import { RevokeInstallationCredentialUseCase } from "../../application/use-cases/revoke-installation-credential.use-case";
+import type { CustomerDisplaySummary } from "../../application/ports/customer-summary-reader.port";
+import type { LicenseDisplaySummary } from "../../application/ports/license-summary-reader.port";
+import type { Installation } from "../../domain/installation";
 import { InstallationEnrollmentPurpose } from "../../domain/installation-enrollment-purpose";
 import { InstallationNotFoundError } from "../../domain/installation.errors";
 import { ChangeInstallationStatusRequestDto } from "./dto/change-installation-status.request.dto";
@@ -71,7 +77,40 @@ export class InstallationController {
     private readonly issueInstallationEnrollmentUseCase: IssueInstallationEnrollmentUseCase,
     private readonly revokeInstallationCredentialUseCase: RevokeInstallationCredentialUseCase,
     private readonly getInstallationHealthUseCase: GetInstallationHealthUseCase,
+    private readonly getCustomerSummariesUseCase: GetCustomerSummariesUseCase,
+    private readonly getLicenseSummariesUseCase: GetLicenseSummariesUseCase,
   ) {}
+
+  /**
+   * Batches exactly one GetCustomerSummariesUseCase call and one GetLicenseSummariesUseCase call
+   * for however many distinct customerId/licenseId values are involved (1 each for create/getById/
+   * changeStatus, deduplicated-across-the-page for list) - never one call per row. A summary
+   * missing for an id an Installation genuinely references would mean the domain's own referential
+   * guarantee (an Installation can only be created against an existing Customer/License, and
+   * neither is ever deleted) has been violated - a real internal-consistency bug, not a normal
+   * "not found" outcome, so it's a plain Error (mapped to a generic 500) rather than a new domain
+   * error code.
+   */
+  private async getRelationSummaries(installations: readonly Installation[]): Promise<{
+    customers: Map<string, CustomerDisplaySummary>;
+    licenses: Map<string, LicenseDisplaySummary>;
+  }> {
+    const customerIds = [...new Set(installations.map((installation) => installation.customerId))];
+    const licenseIds = [...new Set(installations.map((installation) => installation.licenseId))];
+    const [customers, licenses] = await Promise.all([
+      this.getCustomerSummariesUseCase.execute(customerIds),
+      this.getLicenseSummariesUseCase.execute(licenseIds),
+    ]);
+    return { customers, licenses };
+  }
+
+  private requireSummary<T>(map: Map<string, T>, id: string, label: string): T {
+    const summary = map.get(id);
+    if (!summary) {
+      throw new Error(`${label} summary missing for id ${id} - data inconsistency.`);
+    }
+    return summary;
+  }
 
   @Post()
   @RequirePermissions(PERMISSIONS.INSTALLATIONS.CREATE)
@@ -86,7 +125,12 @@ export class InstallationController {
       body,
       buildAdminAuditActor(admin, request),
     );
-    return InstallationResponseDto.fromDomain(installation);
+    const { customers, licenses } = await this.getRelationSummaries([installation]);
+    return InstallationResponseDto.fromDomain(
+      installation,
+      this.requireSummary(customers, installation.customerId, "Customer"),
+      this.requireSummary(licenses, installation.licenseId, "License"),
+    );
   }
 
   @Get(":id")
@@ -98,7 +142,12 @@ export class InstallationController {
     if (!installation) {
       throw new InstallationNotFoundError(id);
     }
-    return InstallationResponseDto.fromDomain(installation);
+    const { customers, licenses } = await this.getRelationSummaries([installation]);
+    return InstallationResponseDto.fromDomain(
+      installation,
+      this.requireSummary(customers, installation.customerId, "Customer"),
+      this.requireSummary(licenses, installation.licenseId, "License"),
+    );
   }
 
   @Get(":id/health")
@@ -125,8 +174,17 @@ export class InstallationController {
   @ApiOperation({ summary: "List installations" })
   async list(@Query() query: ListInstallationsQueryDto): Promise<InstallationListResponseDto> {
     const result = await this.listInstallationsUseCase.execute(query);
+    const { customers, licenses } = await this.getRelationSummaries(
+      result.items.map((item: InstallationListItemWithHealth) => item.installation),
+    );
     return {
-      items: result.items.map(InstallationListItemResponseDto.fromListItem),
+      items: result.items.map((item) =>
+        InstallationListItemResponseDto.fromListItem(
+          item,
+          this.requireSummary(customers, item.installation.customerId, "Customer"),
+          this.requireSummary(licenses, item.installation.licenseId, "License"),
+        ),
+      ),
       page: result.page,
       pageSize: result.pageSize,
       total: result.total,
@@ -153,7 +211,12 @@ export class InstallationController {
       { id, status: body.status },
       buildAdminAuditActor(admin, request),
     );
-    return InstallationResponseDto.fromDomain(installation);
+    const { customers, licenses } = await this.getRelationSummaries([installation]);
+    return InstallationResponseDto.fromDomain(
+      installation,
+      this.requireSummary(customers, installation.customerId, "Customer"),
+      this.requireSummary(licenses, installation.licenseId, "License"),
+    );
   }
 
   @Post(":id/enrollment")

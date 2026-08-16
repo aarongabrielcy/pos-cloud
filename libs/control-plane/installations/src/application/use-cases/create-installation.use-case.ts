@@ -12,10 +12,6 @@ import { INSTALLATION_AUDIT_ACTIONS, INSTALLATION_AUDIT_RESOURCE_TYPE } from "..
 import { Installation } from "../../domain/installation";
 import { InstallationCode } from "../../domain/installation-code";
 import {
-  INSTALLATION_REPOSITORY,
-  type InstallationRepository,
-} from "../../domain/installation-repository.port";
-import {
   InstallationCodeAlreadyExistsError,
   InstallationCustomerNotActiveError,
   InstallationCustomerNotFoundError,
@@ -26,6 +22,10 @@ import {
 } from "../../domain/installation.errors";
 import type { Platform } from "../../domain/platform";
 import { CUSTOMER_READER_PORT, type CustomerReaderPort } from "../ports/customer-reader.port";
+import {
+  INSTALLATION_CREATION_UNIT_OF_WORK,
+  type InstallationCreationUnitOfWork,
+} from "../ports/installation-creation-unit-of-work.port";
 import { LICENSE_READER_PORT, type LicenseReaderPort } from "../ports/license-reader.port";
 
 export interface CreateInstallationCommand {
@@ -39,9 +39,10 @@ export interface CreateInstallationCommand {
 @Injectable()
 export class CreateInstallationUseCase {
   constructor(
-    @Inject(INSTALLATION_REPOSITORY) private readonly installations: InstallationRepository,
     @Inject(CUSTOMER_READER_PORT) private readonly customerReader: CustomerReaderPort,
     @Inject(LICENSE_READER_PORT) private readonly licenseReader: LicenseReaderPort,
+    @Inject(INSTALLATION_CREATION_UNIT_OF_WORK)
+    private readonly creationUnitOfWork: InstallationCreationUnitOfWork,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly idGenerator: IdGenerator,
     @Inject(AUDIT_RECORDER_PORT) private readonly auditRecorder: AuditRecorderPort,
@@ -75,22 +76,9 @@ export class CreateInstallationUseCase {
       throw new LicenseNotUsableError(command.licenseId);
     }
 
-    // 6. Capacity: count installations for this license that are NOT DECOMMISSIONED.
-    // NOTE: known race - two concurrent CreateInstallation requests for the same license can
-    // both pass this count check before either save() completes. See docs/architecture for the
-    // documented risk and the future transactional/locking mitigation; not addressed here.
-    const current = await this.installations.countNonDecommissionedByLicense(command.licenseId);
-    if (current >= license.maxInstallations) {
-      throw new LicenseCapacityExceededError(command.licenseId, license.maxInstallations);
-    }
-
-    // 7. installationCode does not already exist.
+    // license.maxInstallations is immutable after License creation (no mutation endpoint ever
+    // touches it), so it's safe to have read it above, before entering the lock below.
     const code = InstallationCode.create(command.installationCode);
-    const existing = await this.installations.findByCode(code);
-    if (existing) {
-      throw new InstallationCodeAlreadyExistsError(code.toString());
-    }
-
     const installation = Installation.create(
       {
         id: this.idGenerator.next(),
@@ -103,7 +91,24 @@ export class CreateInstallationUseCase {
       this.clock,
     );
 
-    await this.installations.save(installation);
+    // 6+7. Capacity check and installationCode-uniqueness check, immediately followed by save -
+    // all three now serialized per-license via a Postgres advisory lock (see
+    // InstallationCreationUnitOfWork's own comment). This closes the previously-known race where
+    // two concurrent requests for the same license could both pass the capacity check before
+    // either save() completed.
+    await this.creationUnitOfWork.runExclusiveForLicense(command.licenseId, async (ctx) => {
+      const current = await ctx.countNonDecommissionedByLicense(command.licenseId);
+      if (current >= license.maxInstallations) {
+        throw new LicenseCapacityExceededError(command.licenseId, license.maxInstallations);
+      }
+
+      const existing = await ctx.findInstallationByCode(code);
+      if (existing) {
+        throw new InstallationCodeAlreadyExistsError(code.toString());
+      }
+
+      await ctx.saveInstallation(installation);
+    });
 
     await this.auditRecorder.record({
       actor,

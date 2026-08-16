@@ -4,6 +4,7 @@ import { CLOCK, ID_GENERATOR, RandomUuidGenerator, SystemClock } from "@pos-clou
 import { ChangeCustomerStatusUseCase } from "./application/use-cases/change-customer-status.use-case";
 import { CreateCustomerUseCase } from "./application/use-cases/create-customer.use-case";
 import { GetCustomerByIdUseCase } from "./application/use-cases/get-customer-by-id.use-case";
+import { GetCustomersByIdsUseCase } from "./application/use-cases/get-customers-by-ids.use-case";
 import { ListCustomersUseCase } from "./application/use-cases/list-customers.use-case";
 import { CUSTOMER_REPOSITORY } from "./domain/customer-repository.port";
 import { CustomerRecord } from "./infrastructure/persistence/customer.record";
@@ -12,9 +13,10 @@ import { CustomerController } from "./presentation/http/customer.controller";
 
 /**
  * Public NestJS module for the Customer Management bounded context. Exports GetCustomerByIdUseCase
- * only - the minimum needed by the composition root to build a CustomerReaderPort adapter for
- * other bounded contexts (see apps/api's cross-context wiring). No repository, no record, no
- * mapper is exported: those stay internal to this package.
+ * and GetCustomersByIdsUseCase - the minimum needed by the composition root to build a
+ * CustomerReaderPort adapter (single-id eligibility) and a CustomerSummaryReaderPort adapter
+ * (batched display summaries) for other bounded contexts (see apps/api's cross-context wiring). No
+ * repository, no record, no mapper is exported: those stay internal to this package.
  */
 @Module({
   imports: [TypeOrmModule.forFeature([CustomerRecord])],
@@ -25,9 +27,10 @@ import { CustomerController } from "./presentation/http/customer.controller";
     { provide: ID_GENERATOR, useClass: RandomUuidGenerator },
     CreateCustomerUseCase,
     GetCustomerByIdUseCase,
+    GetCustomersByIdsUseCase,
     ListCustomersUseCase,
     ChangeCustomerStatusUseCase,
   ],
-  exports: [GetCustomerByIdUseCase],
+  exports: [GetCustomerByIdUseCase, GetCustomersByIdsUseCase],
 })
 export class CustomerManagementModule {}

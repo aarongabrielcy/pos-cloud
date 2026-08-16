@@ -4,6 +4,7 @@ import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
 import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FakeCustomerReader, FakeLicenseReader } from "../../test-support/fake-readers";
 import { FixedClock } from "../../test-support/fixed-clock";
+import { InMemoryInstallationCreationUnitOfWork } from "../../test-support/in-memory-installation-creation-unit-of-work";
 import { InMemoryInstallationRepository } from "../../test-support/in-memory-installation-repository";
 import { Installation } from "../../domain/installation";
 import { InstallationCode } from "../../domain/installation-code";
@@ -36,9 +37,9 @@ describe("ListInstallationsUseCase", () => {
     customerReader.register({ id: customerId, active: true });
     licenseReader.register({ id: licenseId, customerId, maxInstallations: 5, usable: true });
     const createUseCase = new CreateInstallationUseCase(
-      repository,
       customerReader,
       licenseReader,
+      new InMemoryInstallationCreationUnitOfWork(repository),
       clock,
       new RandomUuidGenerator(),
       new FakeAuditRecorder(),
@@ -81,9 +82,9 @@ describe("ListInstallationsUseCase", () => {
     customerReader.register({ id: customerId, active: true });
     licenseReader.register({ id: licenseId, customerId, maxInstallations: 5, usable: true });
     const createUseCase = new CreateInstallationUseCase(
-      repository,
       customerReader,
       licenseReader,
+      new InMemoryInstallationCreationUnitOfWork(repository),
       clock,
       new RandomUuidGenerator(),
       new FakeAuditRecorder(),

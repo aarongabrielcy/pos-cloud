@@ -14,8 +14,10 @@ import {
   CreateInstallationUseCase,
   EnrollInstallationUseCase,
   EnrollmentFailedError,
+  GetCustomerSummariesUseCase,
   GetInstallationByIdUseCase,
   GetInstallationHealthUseCase,
+  GetLicenseSummariesUseCase,
   INSTALLATION_CREDENTIAL_VERIFIER,
   InstallationAuthGuard,
   InstallationsModule,
@@ -114,6 +116,10 @@ describe("Installation Auth HTTP contract", () => {
       .useValue({ execute: jest.fn() })
       .overrideProvider(RecordInstallationHeartbeatUseCase)
       .useValue(recordInstallationHeartbeatUseCase)
+      .overrideProvider(GetCustomerSummariesUseCase)
+      .useValue({ execute: jest.fn().mockResolvedValue(new Map()) })
+      .overrideProvider(GetLicenseSummariesUseCase)
+      .useValue({ execute: jest.fn().mockResolvedValue(new Map()) })
       .overrideProvider(INSTALLATION_CREDENTIAL_VERIFIER)
       .useValue(verifier);
 
@@ -445,6 +451,10 @@ describe("Installation Auth HTTP contract", () => {
         .useValue({ execute: jest.fn() })
         .overrideProvider(GetInstallationHealthUseCase)
         .useValue({ execute: jest.fn() })
+        .overrideProvider(GetCustomerSummariesUseCase)
+        .useValue({ execute: jest.fn().mockResolvedValue(new Map()) })
+        .overrideProvider(GetLicenseSummariesUseCase)
+        .useValue({ execute: jest.fn().mockResolvedValue(new Map()) })
         .overrideProvider(getDataSourceToken())
         .useValue(fakeDataSource);
       // Deliberately NOT overriding INSTALLATION_CREDENTIAL_VERIFIER - the real

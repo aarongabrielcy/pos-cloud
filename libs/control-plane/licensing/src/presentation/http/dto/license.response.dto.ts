@@ -3,11 +3,16 @@ import type { License } from "../../../domain/license";
 import { LicenseEdition } from "../../../domain/license-edition";
 import { LicenseModel } from "../../../domain/license-model";
 import { LicenseStatus } from "../../../domain/license-status";
+import type { CustomerDisplaySummary } from "../../../application/ports/customer-summary-reader.port";
+import { CustomerSummaryResponseDto } from "./customer-summary.response.dto";
 import { EntitlementResponseDto } from "./entitlement.response.dto";
 
 export class LicenseResponseDto {
   @ApiProperty() id!: string;
+  /** Machine identifier - kept for backward compatibility/machine use. See `customer` for the
+   *  human-facing summary. */
   @ApiProperty() customerId!: string;
+  @ApiProperty({ type: CustomerSummaryResponseDto }) customer!: CustomerSummaryResponseDto;
   @ApiProperty() licenseNumber!: string;
   @ApiProperty({ enum: LicenseEdition }) edition!: LicenseEdition;
   @ApiProperty({ enum: LicenseModel }) licenseModel!: LicenseModel;
@@ -22,11 +27,13 @@ export class LicenseResponseDto {
 
   static fromDomain(
     license: License,
+    customer: CustomerDisplaySummary,
     options: { includeEntitlements: boolean },
   ): LicenseResponseDto {
     const dto = new LicenseResponseDto();
     dto.id = license.id.toString();
     dto.customerId = license.customerId;
+    dto.customer = CustomerSummaryResponseDto.fromSummary(customer);
     dto.licenseNumber = license.licenseNumber.toString();
     dto.edition = license.edition;
     dto.licenseModel = license.licenseModel;

@@ -30,6 +30,10 @@ export class InMemoryLicenseRepository implements LicenseRepository {
     this.byId.set(license.id.toString(), license);
   }
 
+  async findByIds(ids: readonly string[]): Promise<License[]> {
+    return ids.map((id) => this.byId.get(id)).filter((l): l is License => l !== undefined);
+  }
+
   async list(criteria: ListLicensesCriteria): Promise<PaginatedResult<License>> {
     let items = [...this.byId.values()];
 

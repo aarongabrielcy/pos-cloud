@@ -4,6 +4,7 @@ import { RandomUuidGenerator } from "@pos-cloud/shared-kernel";
 import { FakeAuditRecorder } from "../../test-support/fake-audit-recorder";
 import { FakeCustomerReader, FakeLicenseReader } from "../../test-support/fake-readers";
 import { FixedClock } from "../../test-support/fixed-clock";
+import { InMemoryInstallationCreationUnitOfWork } from "../../test-support/in-memory-installation-creation-unit-of-work";
 import { InMemoryInstallationRepository } from "../../test-support/in-memory-installation-repository";
 import {
   InstallationCodeAlreadyExistsError,
@@ -31,9 +32,9 @@ function setup() {
   const licenseReader = new FakeLicenseReader();
   const auditRecorder = new FakeAuditRecorder();
   const useCase = new CreateInstallationUseCase(
-    repository,
     customerReader,
     licenseReader,
+    new InMemoryInstallationCreationUnitOfWork(repository),
     clock,
     new RandomUuidGenerator(),
     auditRecorder,

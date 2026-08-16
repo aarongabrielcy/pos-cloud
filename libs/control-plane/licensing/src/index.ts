@@ -14,12 +14,19 @@ export { ReplaceLicenseEntitlementsUseCase } from "./application/use-cases/repla
 export type { ReplaceLicenseEntitlementsCommand } from "./application/use-cases/replace-license-entitlements.use-case";
 export { GetLicenseSummaryUseCase } from "./application/use-cases/get-license-summary.use-case";
 export type { LicenseSummary } from "./application/use-cases/get-license-summary.use-case";
+export { GetLicensesByIdsUseCase } from "./application/use-cases/get-licenses-by-ids.use-case";
+export { GetCustomerSummariesUseCase } from "./application/use-cases/get-customer-summaries.use-case";
 
 export {
   CUSTOMER_READER_PORT,
   type CustomerReaderPort,
   type CustomerSummary,
 } from "./application/ports/customer-reader.port";
+export {
+  CUSTOMER_SUMMARY_READER_PORT,
+  type CustomerSummaryReaderPort,
+  type CustomerDisplaySummary,
+} from "./application/ports/customer-summary-reader.port";
 
 export type { License, ReplaceEntitlementItemInput } from "./domain/license";
 export type { LicenseEntitlement } from "./domain/license-entitlement";

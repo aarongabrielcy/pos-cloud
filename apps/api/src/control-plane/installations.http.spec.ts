@@ -10,8 +10,10 @@ import {
   ChangeInstallationStatusUseCase,
   CreateInstallationUseCase,
   EnrollInstallationUseCase,
+  GetCustomerSummariesUseCase,
   GetInstallationByIdUseCase,
   GetInstallationHealthUseCase,
+  GetLicenseSummariesUseCase,
   InstallationNotEligibleForEnrollmentError,
   InstallationNotFoundError,
   InstallationsModule,
@@ -24,7 +26,11 @@ import {
   RevokeInstallationCredentialUseCase,
 } from "@pos-cloud/installations";
 import request from "supertest";
-import { fakeInstallation } from "../test-support/fixtures";
+import {
+  fakeCustomerSummary,
+  fakeInstallation,
+  fakeLicenseSummary,
+} from "../test-support/fixtures";
 import { createHttpTestModuleBuilder, initHttpTestApp } from "../test-support/http-test-app";
 
 const STUB_ADMIN_ID = "test-admin-id";
@@ -55,6 +61,8 @@ describe("Installations HTTP contract", () => {
   let issueInstallationEnrollmentUseCase: { execute: jest.Mock };
   let revokeInstallationCredentialUseCase: { execute: jest.Mock };
   let getInstallationHealthUseCase: { execute: jest.Mock };
+  let getCustomerSummariesUseCase: { execute: jest.Mock };
+  let getLicenseSummariesUseCase: { execute: jest.Mock };
 
   const customerId = "11111111-1111-4111-8111-111111111111";
   const licenseId = "22222222-2222-4222-8222-222222222222";
@@ -67,6 +75,12 @@ describe("Installations HTTP contract", () => {
     issueInstallationEnrollmentUseCase = { execute: jest.fn() };
     revokeInstallationCredentialUseCase = { execute: jest.fn() };
     getInstallationHealthUseCase = { execute: jest.fn() };
+    getCustomerSummariesUseCase = {
+      execute: jest.fn().mockResolvedValue(new Map([[customerId, fakeCustomerSummary()]])),
+    };
+    getLicenseSummariesUseCase = {
+      execute: jest.fn().mockResolvedValue(new Map([[licenseId, fakeLicenseSummary()]])),
+    };
 
     const moduleBuilder = createHttpTestModuleBuilder([StubCurrentAdminModule, InstallationsModule])
       .overrideProvider(CreateInstallationUseCase)
@@ -84,7 +98,11 @@ describe("Installations HTTP contract", () => {
       .overrideProvider(EnrollInstallationUseCase)
       .useValue({ execute: jest.fn() })
       .overrideProvider(GetInstallationHealthUseCase)
-      .useValue(getInstallationHealthUseCase);
+      .useValue(getInstallationHealthUseCase)
+      .overrideProvider(GetCustomerSummariesUseCase)
+      .useValue(getCustomerSummariesUseCase)
+      .overrideProvider(GetLicenseSummariesUseCase)
+      .useValue(getLicenseSummariesUseCase);
 
     app = await initHttpTestApp(moduleBuilder);
   });
@@ -235,6 +253,23 @@ describe("Installations HTTP contract", () => {
 
       expect(response.status).toBe(200);
     });
+
+    it("includes both Customer and License display summaries alongside the raw ids (never replacing them)", async () => {
+      getInstallationByIdUseCase.execute.mockResolvedValue(fakeInstallation());
+
+      const response = await request(app.getHttpServer()).get(
+        "/api/v1/control-plane/installations/44444444-4444-4444-8444-444444444444",
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.customerId).toBe(customerId);
+      expect(response.body.licenseId).toBe(licenseId);
+      expect(response.body.customer).toMatchObject({ id: customerId, code: "GST-MX" });
+      expect(response.body.license).toMatchObject({
+        id: licenseId,
+        licenseNumber: "LIC-GST-00001",
+      });
+    });
   });
 
   describe("GET /api/v1/control-plane/installations/:id/health", () => {
@@ -331,6 +366,83 @@ describe("Installations HTTP contract", () => {
         lastSeenAt: null,
       });
       expect(response.body.items[0].status).toBeDefined();
+    });
+
+    it("includes Customer and License display summaries on each list item", async () => {
+      const response = await request(app.getHttpServer()).get(
+        "/api/v1/control-plane/installations",
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.items[0].customer).toMatchObject({ id: customerId, code: "GST-MX" });
+      expect(response.body.items[0].license).toMatchObject({ id: licenseId });
+    });
+
+    it("batches exactly ONE call each to GetCustomerSummariesUseCase and GetLicenseSummariesUseCase for a page of many items - never one per row (no N+1)", async () => {
+      const otherCustomerId = "55555555-5555-4555-8555-555555555555";
+      const otherLicenseId = "66666666-6666-4666-8666-666666666666";
+      listInstallationsUseCase.execute.mockResolvedValue({
+        items: [
+          {
+            installation: fakeInstallation({
+              id: "a1111111-1111-4111-8111-111111111111",
+              customerId,
+              licenseId,
+            }),
+            healthStatus: "NEVER_SEEN",
+            lastSeenAt: null,
+          },
+          {
+            installation: fakeInstallation({
+              id: "a2222222-2222-4222-8222-222222222222",
+              customerId,
+              licenseId,
+            }),
+            healthStatus: "NEVER_SEEN",
+            lastSeenAt: null,
+          },
+          {
+            installation: fakeInstallation({
+              id: "a3333333-3333-4333-8333-333333333333",
+              customerId: otherCustomerId,
+              licenseId: otherLicenseId,
+            }),
+            healthStatus: "NEVER_SEEN",
+            lastSeenAt: null,
+          },
+        ],
+        page: 1,
+        pageSize: 25,
+        total: 3,
+        totalPages: 1,
+      });
+      getCustomerSummariesUseCase.execute.mockResolvedValue(
+        new Map([
+          [customerId, fakeCustomerSummary()],
+          [otherCustomerId, fakeCustomerSummary({ id: otherCustomerId, code: "ACME" })],
+        ]),
+      );
+      getLicenseSummariesUseCase.execute.mockResolvedValue(
+        new Map([
+          [licenseId, fakeLicenseSummary()],
+          [otherLicenseId, fakeLicenseSummary({ id: otherLicenseId, licenseNumber: "LIC-ACME-1" })],
+        ]),
+      );
+
+      const response = await request(app.getHttpServer()).get(
+        "/api/v1/control-plane/installations",
+      );
+
+      expect(response.status).toBe(200);
+      expect(getCustomerSummariesUseCase.execute).toHaveBeenCalledTimes(1);
+      expect(getLicenseSummariesUseCase.execute).toHaveBeenCalledTimes(1);
+      // Deduplicated: 3 items, 2 distinct customerIds/licenseIds, still exactly one call each with
+      // exactly those 2 ids.
+      expect((getCustomerSummariesUseCase.execute.mock.calls[0] as [string[]])[0]).toHaveLength(2);
+      expect((getLicenseSummariesUseCase.execute.mock.calls[0] as [string[]])[0]).toHaveLength(2);
+      expect(response.body.items[0].customer.code).toBe("GST-MX");
+      expect(response.body.items[2].customer.code).toBe("ACME");
+      expect(response.body.items[2].license.licenseNumber).toBe("LIC-ACME-1");
     });
 
     it("returns 400 for an invalid pageSize", async () => {

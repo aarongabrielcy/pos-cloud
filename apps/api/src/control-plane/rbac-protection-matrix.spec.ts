@@ -29,8 +29,10 @@ import {
   ChangeInstallationStatusUseCase,
   CreateInstallationUseCase,
   EnrollInstallationUseCase,
+  GetCustomerSummariesUseCase as InstallationsGetCustomerSummariesUseCase,
   GetInstallationByIdUseCase,
   GetInstallationHealthUseCase,
+  GetLicenseSummariesUseCase,
   InstallationsModule,
   IssueInstallationEnrollmentUseCase,
   ListInstallationsUseCase,
@@ -40,6 +42,7 @@ import {
 import {
   ChangeLicenseStatusUseCase,
   CreateLicenseUseCase,
+  GetCustomerSummariesUseCase as LicensingGetCustomerSummariesUseCase,
   GetLicenseByIdUseCase,
   LicensingModule,
   ListLicensesUseCase,
@@ -311,6 +314,8 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
       .useValue({ execute: jest.fn() })
       .overrideProvider(ReplaceLicenseEntitlementsUseCase)
       .useValue({ execute: jest.fn() })
+      .overrideProvider(LicensingGetCustomerSummariesUseCase)
+      .useValue({ execute: jest.fn().mockResolvedValue(new Map()) })
       .overrideProvider(CreateInstallationUseCase)
       .useValue({ execute: jest.fn() })
       .overrideProvider(GetInstallationByIdUseCase)
@@ -329,6 +334,10 @@ describe("RBAC protection matrix - metadata cross-check via DiscoveryService", (
       .useValue({ execute: jest.fn() })
       .overrideProvider(RecordInstallationHeartbeatUseCase)
       .useValue({ execute: jest.fn() })
+      .overrideProvider(InstallationsGetCustomerSummariesUseCase)
+      .useValue({ execute: jest.fn().mockResolvedValue(new Map()) })
+      .overrideProvider(GetLicenseSummariesUseCase)
+      .useValue({ execute: jest.fn().mockResolvedValue(new Map()) })
       .overrideProvider(ListAuditEventsUseCase)
       .useValue({ execute: jest.fn() })
       .compile();

@@ -4,12 +4,15 @@ import { CLOCK, ID_GENERATOR, RandomUuidGenerator, SystemClock } from "@pos-clou
 import { ChangeInstallationStatusUseCase } from "./application/use-cases/change-installation-status.use-case";
 import { CreateInstallationUseCase } from "./application/use-cases/create-installation.use-case";
 import { EnrollInstallationUseCase } from "./application/use-cases/enroll-installation.use-case";
+import { GetCustomerSummariesUseCase } from "./application/use-cases/get-customer-summaries.use-case";
 import { GetInstallationByIdUseCase } from "./application/use-cases/get-installation-by-id.use-case";
 import { GetInstallationHealthUseCase } from "./application/use-cases/get-installation-health.use-case";
+import { GetLicenseSummariesUseCase } from "./application/use-cases/get-license-summaries.use-case";
 import { IssueInstallationEnrollmentUseCase } from "./application/use-cases/issue-installation-enrollment.use-case";
 import { ListInstallationsUseCase } from "./application/use-cases/list-installations.use-case";
 import { RecordInstallationHeartbeatUseCase } from "./application/use-cases/record-installation-heartbeat.use-case";
 import { RevokeInstallationCredentialUseCase } from "./application/use-cases/revoke-installation-credential.use-case";
+import { INSTALLATION_CREATION_UNIT_OF_WORK } from "./application/ports/installation-creation-unit-of-work.port";
 import { INSTALLATION_CREDENTIAL_REPOSITORY } from "./application/ports/installation-credential-repository.port";
 import { INSTALLATION_CREDENTIAL_VERIFIER } from "./application/ports/installation-credential-verifier.port";
 import { INSTALLATION_ENROLLMENT_CONSUMPTION_UNIT_OF_WORK } from "./application/ports/installation-enrollment-consumption-unit-of-work.port";
@@ -24,6 +27,7 @@ import { InstallationCredentialRecord } from "./infrastructure/persistence/insta
 import { InstallationEnrollmentRecord } from "./infrastructure/persistence/installation-enrollment.record";
 import { InstallationHealthRecord } from "./infrastructure/persistence/installation-health.record";
 import { InstallationRecord } from "./infrastructure/persistence/installation.record";
+import { TypeOrmInstallationCreationUnitOfWork } from "./infrastructure/persistence/typeorm-installation-creation-unit-of-work";
 import { TypeOrmInstallationCredentialRepository } from "./infrastructure/persistence/typeorm-installation-credential.repository";
 import { TypeOrmInstallationCredentialVerifierAdapter } from "./infrastructure/persistence/typeorm-installation-credential-verifier.adapter";
 import { TypeOrmInstallationEnrollmentConsumptionUnitOfWork } from "./infrastructure/persistence/typeorm-installation-enrollment-consumption-unit-of-work";
@@ -37,10 +41,11 @@ import { InstallationController } from "./presentation/http/installation.control
 import { InstallationHealthController } from "./presentation/http/installation-health.controller";
 
 /**
- * Public NestJS module for the Installations bounded context. `CUSTOMER_READER_PORT` and
- * `LICENSE_READER_PORT` (see application/ports) are injected by CreateInstallationUseCase/
- * EnrollInstallationUseCase but NOT bound here - the composition root (apps/api) supplies both
- * in-process adapters globally.
+ * Public NestJS module for the Installations bounded context. `CUSTOMER_READER_PORT`,
+ * `LICENSE_READER_PORT`, `CUSTOMER_SUMMARY_READER_PORT`, and `LICENSE_SUMMARY_READER_PORT` (see
+ * application/ports) are injected by CreateInstallationUseCase/EnrollInstallationUseCase/
+ * GetCustomerSummariesUseCase/GetLicenseSummariesUseCase but NOT bound here - the composition root
+ * (apps/api) supplies all four in-process adapters globally.
  *
  * `InstallationAuthGuard` is exported (alongside the controllers) so ControlPlaneModule can register
  * it as a global `APP_GUARD` via `useExisting` - the same reason AccessTokenGuard/
@@ -77,6 +82,10 @@ import { InstallationHealthController } from "./presentation/http/installation-h
       useClass: TypeOrmInstallationEnrollmentConsumptionUnitOfWork,
     },
     {
+      provide: INSTALLATION_CREATION_UNIT_OF_WORK,
+      useClass: TypeOrmInstallationCreationUnitOfWork,
+    },
+    {
       provide: INSTALLATION_CREDENTIAL_VERIFIER,
       useClass: TypeOrmInstallationCredentialVerifierAdapter,
     },
@@ -95,6 +104,8 @@ import { InstallationHealthController } from "./presentation/http/installation-h
     RevokeInstallationCredentialUseCase,
     RecordInstallationHeartbeatUseCase,
     GetInstallationHealthUseCase,
+    GetCustomerSummariesUseCase,
+    GetLicenseSummariesUseCase,
     InstallationAuthGuard,
   ],
   exports: [InstallationAuthGuard],

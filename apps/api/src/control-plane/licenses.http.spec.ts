@@ -9,6 +9,7 @@ import { APP_GUARD } from "@nestjs/core";
 import {
   ChangeLicenseStatusUseCase,
   CreateLicenseUseCase,
+  GetCustomerSummariesUseCase,
   GetLicenseByIdUseCase,
   LicenseCustomerNotFoundError,
   LicenseEdition,
@@ -21,7 +22,7 @@ import {
   ReplaceLicenseEntitlementsUseCase,
 } from "@pos-cloud/licensing";
 import request from "supertest";
-import { fakeLicense } from "../test-support/fixtures";
+import { fakeCustomerSummary, fakeLicense } from "../test-support/fixtures";
 import { createHttpTestModuleBuilder, initHttpTestApp } from "../test-support/http-test-app";
 
 const STUB_ADMIN_ID = "test-admin-id";
@@ -50,6 +51,9 @@ describe("Licenses HTTP contract", () => {
   let listLicensesUseCase: { execute: jest.Mock };
   let changeLicenseStatusUseCase: { execute: jest.Mock };
   let replaceLicenseEntitlementsUseCase: { execute: jest.Mock };
+  let getCustomerSummariesUseCase: { execute: jest.Mock };
+
+  const customerId = "11111111-1111-4111-8111-111111111111";
 
   beforeEach(async () => {
     createLicenseUseCase = { execute: jest.fn() };
@@ -57,6 +61,9 @@ describe("Licenses HTTP contract", () => {
     listLicensesUseCase = { execute: jest.fn() };
     changeLicenseStatusUseCase = { execute: jest.fn() };
     replaceLicenseEntitlementsUseCase = { execute: jest.fn() };
+    getCustomerSummariesUseCase = {
+      execute: jest.fn().mockResolvedValue(new Map([[customerId, fakeCustomerSummary()]])),
+    };
 
     const moduleBuilder = createHttpTestModuleBuilder([StubCurrentAdminModule, LicensingModule])
       .overrideProvider(CreateLicenseUseCase)
@@ -68,7 +75,9 @@ describe("Licenses HTTP contract", () => {
       .overrideProvider(ChangeLicenseStatusUseCase)
       .useValue(changeLicenseStatusUseCase)
       .overrideProvider(ReplaceLicenseEntitlementsUseCase)
-      .useValue(replaceLicenseEntitlementsUseCase);
+      .useValue(replaceLicenseEntitlementsUseCase)
+      .overrideProvider(GetCustomerSummariesUseCase)
+      .useValue(getCustomerSummariesUseCase);
 
     app = await initHttpTestApp(moduleBuilder);
   });
@@ -76,8 +85,6 @@ describe("Licenses HTTP contract", () => {
   afterEach(async () => {
     await app.close();
   });
-
-  const customerId = "11111111-1111-4111-8111-111111111111";
 
   describe("POST /api/v1/control-plane/licenses", () => {
     it("returns 201 for a valid BASIC + PERPETUAL request", async () => {
@@ -301,6 +308,22 @@ describe("Licenses HTTP contract", () => {
       expect(response.status).toBe(200);
       expect(Array.isArray(response.body.entitlements)).toBe(true);
     });
+
+    it("includes the Customer display summary alongside the raw customerId (never replacing it)", async () => {
+      getLicenseByIdUseCase.execute.mockResolvedValue(fakeLicense());
+
+      const response = await request(app.getHttpServer()).get(
+        "/api/v1/control-plane/licenses/22222222-2222-4222-8222-222222222222",
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.customerId).toBe(customerId);
+      expect(response.body.customer).toMatchObject({
+        id: customerId,
+        code: "GST-MX",
+        legalName: "GS Trackme S.A. de C.V.",
+      });
+    });
   });
 
   describe("GET /api/v1/control-plane/licenses", () => {
@@ -319,6 +342,46 @@ describe("Licenses HTTP contract", () => {
 
       expect(response.status).toBe(200);
       expect(response.body.items[0].entitlements).toBeUndefined();
+    });
+
+    it("includes the Customer display summary on each list item", async () => {
+      const response = await request(app.getHttpServer()).get("/api/v1/control-plane/licenses");
+
+      expect(response.status).toBe(200);
+      expect(response.body.items[0].customer).toMatchObject({ id: customerId, code: "GST-MX" });
+    });
+
+    it("batches exactly ONE GetCustomerSummariesUseCase call for a page of many items - never one per row (no N+1)", async () => {
+      const otherCustomerId = "33333333-3333-4333-8333-333333333333";
+      listLicensesUseCase.execute.mockResolvedValue({
+        items: [
+          fakeLicense({ id: "a1111111-1111-4111-8111-111111111111", customerId }),
+          fakeLicense({ id: "a2222222-2222-4222-8222-222222222222", customerId }),
+          fakeLicense({ id: "a3333333-3333-4333-8333-333333333333", customerId: otherCustomerId }),
+        ],
+        page: 1,
+        pageSize: 25,
+        total: 3,
+        totalPages: 1,
+      });
+      getCustomerSummariesUseCase.execute.mockResolvedValue(
+        new Map([
+          [customerId, fakeCustomerSummary()],
+          [otherCustomerId, fakeCustomerSummary({ id: otherCustomerId, code: "ACME" })],
+        ]),
+      );
+
+      const response = await request(app.getHttpServer()).get("/api/v1/control-plane/licenses");
+
+      expect(response.status).toBe(200);
+      expect(getCustomerSummariesUseCase.execute).toHaveBeenCalledTimes(1);
+      // Deduplicated: 3 items, 2 distinct customerIds, still exactly one call with exactly those 2 ids.
+      expect(getCustomerSummariesUseCase.execute).toHaveBeenCalledWith(
+        expect.arrayContaining([customerId, otherCustomerId]),
+      );
+      expect((getCustomerSummariesUseCase.execute.mock.calls[0] as [string[]])[0]).toHaveLength(2);
+      expect(response.body.items[0].customer.code).toBe("GST-MX");
+      expect(response.body.items[2].customer.code).toBe("ACME");
     });
 
     it("returns 400 for an invalid pagination value", async () => {
